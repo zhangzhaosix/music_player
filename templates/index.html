@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>♫ 我的音乐</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <meta name="theme-color" content="#0a0a0f">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部标题 -->
+        <header class="app-header">
+            <h1>♫ 我的音乐</h1>
+        </header>
+
+        <!-- 搜索栏 -->
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="搜索歌曲、歌手..." autocomplete="off">
+            <button id="searchBtn">搜索</button>
+        </div>
+
+        <!-- 选项卡 -->
+        <nav class="tabs">
+            <button class="tab" data-tab="search">搜索结果</button>
+            <button class="tab active" data-tab="favorites">收藏</button>
+            <button class="tab" data-tab="playlists">我的歌单</button>
+            <button class="tab" data-tab="downloads">下载</button>
+        </nav>
+
+        <!-- 主内容区 -->
+        <div class="main-layout">
+            <!-- 歌曲内容 -->
+            <main class="content-area">
+                <!-- 搜索结果 -->
+                <div id="tab-search" class="tab-content">
+                    <div id="searchResults" class="song-list"></div>
+                </div>
+                <!-- 收藏 -->
+                <div id="tab-favorites" class="tab-content active">
+                    <div id="favSongs" class="song-list"></div>
+                </div>
+                <!-- 下载 -->
+                <div id="tab-downloads" class="tab-content">
+                    <div id="downloadSongs" class="song-list"></div>
+                </div>
+                <!-- 我的歌单 -->
+                <div id="tab-playlists" class="tab-content">
+                    <div class="pl-tab-header">
+                        <button id="addPlaylistBtn" class="btn-primary">+ 新建歌单</button>
+                    </div>
+                    <div class="playlists-grid" id="playlistsGrid"></div>
+                </div>
+                <!-- 歌单详情 -->
+                <div id="tab-playlist-detail" class="tab-content">
+                    <div class="playlist-detail-header">
+                        <h2 id="playlistDetailName"></h2>
+                        <span id="playlistDetailCount" class="song-count"></span>
+                    </div>
+                    <div id="playlistDetailSongs" class="song-list"></div>
+                </div>
+            </main>
+        </div>
+
+        <!-- 新建歌单弹窗 -->
+        <div id="playlistModal" class="modal-overlay" style="display:none">
+            <div class="modal-box">
+                <h3>新建歌单</h3>
+                <input type="text" id="playlistNameInput" placeholder="输入歌单名称..." autocomplete="off">
+                <div class="modal-actions">
+                    <button id="cancelPlaylistBtn" class="btn-secondary">取消</button>
+                    <button id="confirmPlaylistBtn" class="btn-primary">创建</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 底部播放器 -->
+    <div id="player" class="player-bar" style="display:none">
+        <div class="player-info">
+            <span id="playerTitle" class="player-title">歌曲名</span>
+            <span id="playerArtist" class="player-artist">歌手</span>
+        </div>
+        <div class="equalizer" id="equalizer">
+            <span></span><span></span><span></span><span></span>
+        </div>
+        <div class="player-controls">
+            <button id="prevBtn" class="ctrl-btn" title="上一首"></button>
+            <button id="playBtn" class="ctrl-btn play-btn" title="播放/暂停"></button>
+            <button id="nextBtn" class="ctrl-btn" title="下一首"></button>
+        </div>
+        <div class="player-progress">
+            <span id="currentTime" class="time">00:00</span>
+            <input type="range" id="progressBar" class="progress-bar" value="0" min="0" max="100">
+            <span id="totalTime" class="time">00:00</span>
+        </div>
+        <button id="playModeBtn" class="mode-btn" title="播放模式">🔁</button>
+        <div class="player-volume">
+            <span>🔊</span>
+            <input type="range" id="volumeBar" class="volume-bar" value="80" min="0" max="100">
+        </div>
+    </div>
+
+    <!-- 隐藏的 audio 元素 -->
+    <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplaytube"></audio>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

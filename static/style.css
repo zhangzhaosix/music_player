@@ -1,0 +1,1050 @@
+/* ─── 全局重置 ──────────────────────────────────────────── */
+*, *::before, *::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --glass-bg: rgba(255, 255, 255, 0.1);
+    --glass-bg-hover: rgba(255, 255, 255, 0.18);
+    --glass-bg-strong: rgba(255, 255, 255, 0.2);
+    --glass-border: rgba(255, 255, 255, 0.15);
+    --glass-border-hover: rgba(255, 255, 255, 0.25);
+    --glass-blur: 20px;
+    --glass-radius: 20px;
+    --glass-radius-sm: 14px;
+    --pill-radius: 999px;
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.7);
+    --text-muted: rgba(255, 255, 255, 0.45);
+    --accent: #f472b6;
+    --accent-hover: #f9a8d4;
+    --accent-glow: rgba(244, 114, 182, 0.35);
+    --accent-light: rgba(244, 114, 182, 0.15);
+    --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.12);
+    --player-height: 72px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", Roboto, sans-serif;
+}
+
+body {
+    font-family: var(--font);
+    color: var(--text-primary);
+    min-height: 100vh;
+    padding-bottom: calc(var(--player-height) + 24px);
+    background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+    background-attachment: fixed;
+    position: relative;
+}
+
+/* 背景氛围光晕 */
+body::before {
+    content: '';
+    position: fixed;
+    top: -30%;
+    left: -10%;
+    width: 70%;
+    height: 80%;
+    background: radial-gradient(ellipse, rgba(147, 51, 234, 0.25) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+body::after {
+    content: '';
+    position: fixed;
+    bottom: -20%;
+    right: -10%;
+    width: 60%;
+    height: 70%;
+    background: radial-gradient(ellipse, rgba(236, 72, 153, 0.2) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+.app-container {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 24px 20px;
+    position: relative;
+    z-index: 1;
+}
+
+/* ─── 头部 ──────────────────────────────────────────────── */
+.app-header h1 {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    margin-bottom: 24px;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    background: linear-gradient(135deg, #f9a8d4, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* ─── 搜索栏 ────────────────────────────────────────────── */
+.search-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.search-bar input {
+    flex: 1;
+    padding: 14px 22px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--pill-radius);
+    font-size: 14px;
+    outline: none;
+    transition: all 0.3s;
+    background: rgba(255, 255, 255, 0.06);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    color: var(--text-primary);
+}
+
+.search-bar input::placeholder {
+    color: var(--text-muted);
+}
+
+.search-bar input:focus {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+}
+
+.search-bar button {
+    padding: 14px 28px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #1a1a2e;
+    border: none;
+    border-radius: var(--pill-radius);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.25s;
+}
+
+.search-bar button:hover {
+    background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* ─── 选项卡 ────────────────────────────────────────────── */
+.tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 20px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    padding: 6px;
+    border-radius: var(--pill-radius);
+    border: 1px solid var(--glass-border);
+}
+
+.tab {
+    flex: 1;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    border-radius: var(--pill-radius);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.25s;
+}
+
+.tab:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.tab.active {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+/* ─── 主布局 ────────────────────────────────────────────── */
+.main-layout {
+    display: block;
+}
+
+.content-area {
+    flex: 1;
+    min-width: 0;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* ─── 歌曲列表 ──────────────────────────────────────────── */
+.song-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.song-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 14px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border-radius: var(--glass-radius-sm);
+    transition: all 0.3s;
+    gap: 12px;
+    border: 1px solid var(--glass-border);
+    animation: songFadeIn 0.3s ease both;
+}
+
+@keyframes songFadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.song-item:nth-child(2) { animation-delay: 0.03s; }
+.song-item:nth-child(3) { animation-delay: 0.06s; }
+.song-item:nth-child(4) { animation-delay: 0.09s; }
+.song-item:nth-child(5) { animation-delay: 0.12s; }
+
+.song-item:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
+    transform: translateY(-1px);
+}
+
+/* 歌曲封面占位 */
+.song-cover {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(244, 114, 182, 0.5), rgba(192, 132, 252, 0.5));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+/* 正在播放的歌曲 */
+.song-item.playing-now {
+    background: rgba(244, 114, 182, 0.15);
+    border-color: rgba(244, 114, 182, 0.35);
+    box-shadow: 0 0 24px rgba(244, 114, 182, 0.12);
+}
+
+.song-item.playing-now .song-cover {
+    background: linear-gradient(135deg, #f472b6, #c084fc);
+    animation: coverPulse 2s ease infinite;
+}
+
+@keyframes coverPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(244, 114, 182, 0.3); }
+    50%      { box-shadow: 0 0 24px 6px rgba(244, 114, 182, 0.2); }
+}
+
+.song-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.song-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.song-artist {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.song-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.song-actions button {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    padding: 0;
+    line-height: 1;
+    color: var(--text-secondary);
+}
+
+.song-actions button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    transform: scale(1.1);
+}
+
+/* 按钮颜色 - 玻璃风格 */
+.play-btn-item {
+    color: #f9a8d4;
+    font-size: 16px;
+}
+
+.play-btn-item.playing {
+    background: rgba(244, 114, 182, 0.2);
+    color: #f9a8d4;
+    box-shadow: 0 0 16px rgba(244, 114, 182, 0.2);
+}
+
+.dl-btn {
+    color: rgba(52, 211, 153, 0.8);
+}
+
+.dl-btn:hover {
+    background: rgba(52, 211, 153, 0.12);
+}
+
+.dl-btn.downloaded {
+    color: var(--text-muted);
+    cursor: default;
+}
+
+.dl-btn.downloaded:hover {
+    background: transparent;
+    transform: none;
+}
+
+.fav-btn {
+    color: rgba(251, 191, 36, 0.8);
+}
+
+.fav-btn:hover {
+    background: rgba(251, 191, 36, 0.12);
+}
+
+.fav-btn.favorited {
+    color: #fbbf24;
+}
+
+.add-to-pl-btn {
+    color: rgba(96, 165, 250, 0.8);
+    font-size: 13px;
+}
+
+.add-to-pl-btn:hover {
+    background: rgba(96, 165, 250, 0.12);
+}
+
+.del-btn {
+    color: rgba(248, 113, 113, 0.8);
+    font-size: 13px;
+}
+.del-btn:hover {
+    background: rgba(248, 113, 113, 0.12);
+}
+
+.remove-from-pl-btn {
+    color: rgba(251, 191, 36, 0.9);
+    font-size: 13px;
+}
+.remove-from-pl-btn:hover {
+    background: rgba(251, 191, 36, 0.15);
+}
+
+.del-btn.hidden {
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/* ─── 歌单详情头部 ──────────────────────────────────────── */
+.playlist-detail-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.playlist-detail-header h2 {
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.back-btn {
+    padding: 8px 18px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    color: var(--text-primary);
+    border-radius: var(--pill-radius);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.back-btn:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
+}
+
+.play-all-btn, .add-song-btn {
+    padding: 8px 20px;
+    border: none;
+    background: rgba(255, 255, 255, 0.9);
+    color: #1a1a2e;
+    border-radius: var(--pill-radius);
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.play-all-btn:hover, .add-song-btn:hover {
+    background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.del-pl-btn {
+    padding: 8px 16px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    background: transparent;
+    color: rgba(248, 113, 113, 0.9);
+    border-radius: var(--pill-radius);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.del-pl-btn:hover {
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.5);
+}
+
+.song-count {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* ─── 我的歌单标签页 ───────────────────────────────────── */
+.pl-tab-header {
+    margin-bottom: 16px;
+}
+
+#addPlaylistBtn {
+    padding: 10px 22px;
+    border: none;
+    background: rgba(255, 255, 255, 0.9);
+    color: #1a1a2e;
+    border-radius: var(--pill-radius);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#addPlaylistBtn:hover {
+    background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.playlists-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.playlist-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--glass-radius);
+    padding: 0;
+    text-align: center;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+}
+
+.playlist-card:hover {
+    border-color: var(--glass-border-hover);
+    transform: translateY(-3px);
+    background: var(--glass-bg-hover);
+}
+
+.pl-card-top {
+    padding: 24px 14px 14px;
+    cursor: pointer;
+}
+
+.pl-card-icon {
+    font-size: 36px;
+    margin-bottom: 10px;
+    display: block;
+    filter: drop-shadow(0 2px 8px rgba(0,0,0,0.1));
+}
+
+.pl-card-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pl-card-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.pl-card-play {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-top: 1px solid var(--glass-border);
+    background: transparent;
+    color: #f9a8d4;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.pl-card-play:hover {
+    background: var(--accent-light);
+    color: #f9a8d4;
+}
+
+/* ─── 弹窗 ──────────────────────────────────────────────── */
+.modal-overlay, .add-to-pl-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-box, .add-to-pl-panel {
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-radius: 24px;
+    padding: 28px;
+    width: 340px;
+    border: 1px solid var(--glass-border);
+}
+
+.add-to-pl-panel {
+    width: 380px;
+    max-height: 80vh;
+    overflow-y: auto;
+}
+
+.modal-box h3, .add-to-pl-panel h3 {
+    margin-bottom: 16px;
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.modal-box input {
+    width: 100%;
+    padding: 14px 18px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--pill-radius);
+    font-size: 14px;
+    outline: none;
+    margin-bottom: 16px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+}
+
+.modal-box input:focus {
+    border-color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.modal-box input::placeholder {
+    color: var(--text-muted);
+}
+
+.modal-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.btn-primary {
+    padding: 10px 24px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #1a1a2e;
+    border: none;
+    border-radius: var(--pill-radius);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-primary:hover {
+    background: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.btn-secondary {
+    padding: 10px 24px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--pill-radius);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.15);
+    border-color: var(--glass-border-hover);
+}
+
+/* 歌曲选择列表 */
+.song-select-list {
+    max-height: 50vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.song-select-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background 0.15s;
+}
+
+.song-select-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.song-select-item input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #f472b6;
+    flex-shrink: 0;
+}
+
+.song-select-item span {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-primary);
+}
+
+/* ─── 空状态提示 ────────────────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--text-secondary);
+}
+
+.empty-state p {
+    font-size: 15px;
+    margin-bottom: 8px;
+}
+
+.empty-state .hint {
+    font-size: 13px;
+    opacity: 0.6;
+}
+
+/* ─── 加载状态 ──────────────────────────────────────────── */
+.loading {
+    text-align: center;
+    padding: 60px;
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+.loading::after {
+    content: "...";
+    animation: dots 1.5s steps(3, end) infinite;
+}
+
+@keyframes dots {
+    0%   { content: "."; }
+    33%  { content: ".."; }
+    66%  { content: "..."; }
+}
+
+/* ─── 底部播放器 ────────────────────────────────────────── */
+.player-bar {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: min(860px, calc(100% - 32px));
+    height: var(--player-height);
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--glass-radius);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    z-index: 100;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.15);
+}
+
+.player-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    max-width: 160px;
+    flex-shrink: 0;
+}
+
+.player-title {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.player-artist {
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-top: 1px;
+}
+
+/* 播放均衡器动画 */
+.equalizer {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 18px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+.equalizer span {
+    width: 3px;
+    background: linear-gradient(to top, #f472b6, #c084fc);
+    border-radius: 3px;
+    animation: equalize 0.8s ease-in-out infinite alternate;
+    transform-origin: bottom;
+}
+
+.equalizer span:nth-child(1) { height: 6px; animation-delay: 0s; }
+.equalizer span:nth-child(2) { height: 10px; animation-delay: 0.2s; }
+.equalizer span:nth-child(3) { height: 14px; animation-delay: 0.4s; }
+.equalizer span:nth-child(4) { height: 8px; animation-delay: 0.1s; }
+
+@keyframes equalize {
+    0%   { height: 3px; }
+    100% { height: 16px; }
+}
+
+.equalizer.paused span {
+    animation-play-state: paused;
+}
+
+.player-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.ctrl-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.ctrl-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.play-btn {
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.9);
+    color: #1a1a2e;
+    font-size: 16px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.play-btn:hover {
+    background: #ffffff;
+    transform: scale(1.05);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+}
+
+.player-progress {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 80px;
+}
+
+.time {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 36px;
+    font-variant-numeric: tabular-nums;
+}
+
+.progress-bar {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.12);
+    outline: none;
+    cursor: pointer;
+    transition: height 0.15s;
+}
+
+.progress-bar::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+}
+
+.progress-bar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Firefox */
+.progress-bar::-moz-range-track {
+    height: 6px;
+    border-radius: 3px;
+    background: transparent;
+    border: none;
+}
+
+.progress-bar::-moz-range-thumb {
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: none;
+}
+
+.progress-bar::-moz-range-progress {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--accent);
+}
+
+.mode-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+}
+
+.mode-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.player-volume {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.player-volume span {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.volume-bar {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 68px;
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.12);
+    outline: none;
+    cursor: pointer;
+    transition: height 0.15s;
+}
+
+.volume-bar::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 3px;
+}
+
+.volume-bar::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Firefox */
+.volume-bar::-moz-range-track {
+    height: 6px;
+    border-radius: 3px;
+    background: transparent;
+    border: none;
+}
+
+.volume-bar::-moz-range-thumb {
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    border: none;
+}
+
+.volume-bar::-moz-range-progress {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.4);
+}
+
+/* ─── 自定义滚动条 ──────────────────────────────────────── */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* ─── 通知提示 ──────────────────────────────────────────── */
+.toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: var(--text-primary);
+    padding: 12px 20px;
+    border-radius: var(--pill-radius);
+    font-size: 13px;
+    z-index: 2000;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s;
+    pointer-events: none;
+    border: 1px solid var(--glass-border);
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.error-toast {
+    border-color: rgba(248, 113, 113, 0.3);
+}
+
+/* ─── 响应式 ────────────────────────────────────────────── */
+@media (max-width: 700px) {
+    .app-container {
+        padding: 16px 12px;
+    }
+
+    .main-layout {
+        flex-direction: column;
+    }
+
+    .player-bar {
+        bottom: 8px;
+        width: calc(100% - 16px);
+        border-radius: var(--glass-radius-sm);
+        padding: 0 12px;
+        gap: 8px;
+        height: 64px;
+    }
+
+    .player-info {
+        max-width: 100px;
+    }
+
+    .mode-btn {
+        display: none;
+    }
+    .player-volume {
+        display: none;
+    }
+}

@@ -1,0 +1,7 @@
+音乐合集/
+__pycache__/
+*.pyc
+.claude/
+.superpowers/
+server_log.txt
+需要上传至github/
