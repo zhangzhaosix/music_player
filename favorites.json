@@ -1,23 +1,5 @@
 [
   {
-    "id": "买辣椒也用券起风了 (旧版)_1780646528.mp3",
-    "title": "起风了 (旧版)",
-    "artist": "买辣椒也用券",
-    "url": "",
-    "filename": "买辣椒也用券起风了 (旧版)_1780646528.mp3",
-    "downloaded": true,
-    "added_at": "2026-06-05T16:06:55.183885"
-  },
-  {
-    "id": "周深起风了_1780645646.mp3",
-    "title": "起风了",
-    "artist": "周深",
-    "url": "",
-    "filename": "周深起风了_1780645646.mp3",
-    "downloaded": true,
-    "added_at": "2026-06-05T16:16:15.113236"
-  },
-  {
     "id": "d3dpa3l3",
     "title": "再见",
     "artist": "张震岳",
@@ -151,5 +133,23 @@
     "filename": "",
     "downloaded": false,
     "added_at": "2026-06-09T09:17:23.216450"
+  },
+  {
+    "id": "aXdra2t4ZHhr",
+    "title": "小情歌 (苏打绿版)",
+    "artist": "苏打绿",
+    "url": "https://www.qeecc.com/song/aXdra2t4ZHhr.html",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-12T10:40:29.626088"
+  },
+  {
+    "id": "Y25zY3l5Z2k",
+    "title": "颜人中小情歌 (Live)",
+    "artist": "未知歌手",
+    "url": "https://www.qeecc.com/song/Y25zY3l5Z2k.html",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-12T10:40:52.341683"
   }
 ]

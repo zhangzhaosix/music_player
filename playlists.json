@@ -4,8 +4,6 @@
     "name": "学习",
     "songs": [
       "aWN4eHlpY3c",
-      "买辣椒也用券起风了 (旧版)_1780646528.mp3",
-      "周深起风了_1780645646.mp3",
       "d3dpa3l3",
       "eXdkZ25reWQ",
       "aWRpc2ljeWt5"
@@ -15,17 +13,13 @@
   {
     "id": "63ceb090-fc3c-4d95-964a-0b5101a1e446",
     "name": "健身",
-    "songs": [
-      "周深起风了_1780645646.mp3"
-    ],
+    "songs": [],
     "created_at": "2026-06-05T15:23:18.164823"
   },
   {
     "id": "df220f06-4101-43c1-82f0-f6c6ef8125b7",
     "name": "全部",
     "songs": [
-      "买辣椒也用券起风了 (旧版)_1780646528.mp3",
-      "周深起风了_1780645646.mp3",
       "d3dpa3l3",
       "eGlneXhjeWk",
       "eWRueWd4d3d3",
@@ -44,7 +38,9 @@
       "aWNrZ2Rnbnl3",
       "d2tpeGln",
       "eWtueW54c3k",
-      "aWRpc2ljeWt5"
+      "aWRpc2ljeWt5",
+      "Y25zY3l5Z2k",
+      "aXdra2t4ZHhr"
     ],
     "created_at": "2026-06-08T10:52:06.207304"
   }
