@@ -126,3 +126,7 @@ music-player/
 ## 📄 许可
 
 MIT License
+
+## Windows 快捷启动
+
+双击项目根目录的 `启动音乐网页.bat`，即可在本机启动音乐网页。
