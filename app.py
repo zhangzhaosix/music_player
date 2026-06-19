@@ -17,6 +17,8 @@ MUSIC_DIR = os.path.join(BASE_DIR, '音乐合集')
 FAVORITES_FILE = os.path.join(BASE_DIR, 'favorites.json')
 PLAYLISTS_FILE = os.path.join(BASE_DIR, 'playlists.json')
 QEECC_BASE = 'https://www.qeecc.com'
+ITZO_BASE = 'https://music.itzo.cn'
+KUWO_LYRIC_URL = 'http://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId={}'
 
 # 请求头，模拟浏览器访问
 HEADERS = {
@@ -24,10 +26,20 @@ HEADERS = {
     'Referer': QEECC_BASE,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'same-origin',
+    'Sec-Fetch-User': '?1',
 }
 
 # 全局 session 用于 qeecc 请求（维持 cookies）
 _qeecc_session = None
+_itzo_session = None
+_search_cache = {}
+_search_cache_ttl = 300
 
 
 def get_qeecc_session():
@@ -44,7 +56,172 @@ def get_qeecc_session():
     return _qeecc_session
 
 
-# ─── 数据读写工具 ──────────────────────────────────────────
+def get_itzo_session():
+    """获取带 cookies 的 itzo requests Session"""
+    global _itzo_session
+    if _itzo_session is None:
+        _itzo_session = requests.Session()
+        _itzo_session.headers.update({
+            'User-Agent': HEADERS['User-Agent'],
+            'Referer': ITZO_BASE + '/',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+        })
+        try:
+            _itzo_session.get(ITZO_BASE, timeout=10)
+        except Exception:
+            pass
+    return _itzo_session
+
+
+def get_cached_search_results(keyword):
+    cached = _search_cache.get(keyword)
+    if not cached:
+        return None
+    if time.time() - cached['ts'] > _search_cache_ttl:
+        _search_cache.pop(keyword, None)
+        return None
+    return [dict(song) for song in cached['results']]
+
+
+def store_search_results(keyword, results):
+    _search_cache[keyword] = {
+        'ts': time.time(),
+        'results': [dict(song) for song in results],
+    }
+
+
+def parse_itzo_lyrics(lrc_text):
+    lyrics = []
+    if not lrc_text:
+        return lyrics
+
+    for raw_line in str(lrc_text).splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        timestamps = list(re.finditer(r'\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]', line))
+        text = re.sub(r'^(?:\[\d{2}:\d{2}(?:\.\d{1,3})?\])+\s*', '', line).strip()
+        if not text or not timestamps:
+            continue
+
+        match = timestamps[-1]
+        minutes = int(match.group(1))
+        seconds = int(match.group(2))
+        fraction = match.group(3) or '0'
+        try:
+            milliseconds = int((fraction + '000')[:3])
+        except ValueError:
+            milliseconds = 0
+
+        lyrics.append({
+            'time': minutes * 60 + seconds + (milliseconds / 1000.0),
+            'text': text,
+        })
+
+    return lyrics
+
+
+def normalize_itzo_song(item):
+    if not isinstance(item, dict):
+        return None
+
+    title = str(item.get('title', '')).strip() or '未知歌曲'
+    artist = str(item.get('author', '')).strip() or '未知歌手'
+    source_url = str(item.get('link', '')).strip()
+    mp3_url = str(item.get('url', '')).strip()
+    cover_url = str(item.get('pic', '')).strip()
+    song_type = str(item.get('type', '')).strip() or 'netease'
+
+    if mp3_url.startswith('//'):
+        mp3_url = 'https:' + mp3_url
+    if source_url.startswith('//'):
+        source_url = 'https:' + source_url
+    if cover_url.startswith('//'):
+        cover_url = 'https:' + cover_url
+
+    return {
+        'id': source_url or f'itzo:{song_type}:{item.get("songid", "")}',
+        'title': title,
+        'artist': artist,
+        'url': source_url or mp3_url,
+        'mp3_url': mp3_url,
+        'source_url': source_url or mp3_url,
+        'source': 'itzo',
+        'cover_url': cover_url,
+        'type': song_type,
+        'songid': item.get('songid', ''),
+        'lyrics': parse_itzo_lyrics(item.get('lrc', '')),
+    }
+
+
+def fetch_itzo_results(input_value, filter_value='name', music_type='netease', page=1):
+    sess = get_itzo_session()
+    try:
+        resp = sess.post(
+            ITZO_BASE + '/',
+            data={
+                'input': input_value,
+                'filter': filter_value,
+                'type': music_type,
+                'page': page,
+            },
+            timeout=20,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, json.JSONDecodeError, ValueError) as e:
+        return None, f'itzo 请求失败: {str(e)}'
+
+    if not isinstance(data, dict):
+        return None, 'itzo 返回了无效数据'
+
+    if int(data.get('code', 0) or 0) != 200:
+        return None, str(data.get('error') or 'itzo 搜索失败')
+
+    results = data.get('data', [])
+    if not isinstance(results, list):
+        return [], None
+
+    return results, None
+
+
+def search_itzo(keyword, limit=30):
+    cached_results = get_cached_search_results(keyword)
+    if cached_results is not None:
+        return cached_results
+
+    results = []
+    seen_keys = set()
+    for page in range(1, 4):
+        page_results, err = fetch_itzo_results(keyword, filter_value='name', music_type='netease', page=page)
+        if err:
+            if results:
+                break
+            return {'error': err}, 502
+        if not page_results:
+            break
+
+        for item in page_results:
+            song = normalize_itzo_song(item)
+            if not song:
+                continue
+            if song['id'] in seen_keys:
+                continue
+            seen_keys.add(song['id'])
+            results.append(song)
+            if len(results) >= limit:
+                break
+
+        if len(results) >= limit or len(page_results) < 10:
+            break
+
+    if results:
+        store_search_results(keyword, results)
+        return results[:limit]
+
+    return []
+
 
 def read_json(filepath):
     if not os.path.exists(filepath):
@@ -130,6 +307,8 @@ COMMON_ARTISTS = {
     '陶喆', '王若琳', '满舒克', '王以太', '姜云升', '刘聪',
     '艾福杰尼', '黄旭', '派克特', '功夫胖', '蛋堡', 'Lu1',
     '付豪',
+    '阿桑', '徐君', '任然', '程响', '海来阿木', '张碧晨', '单依纯', '王琪',
+    '阿悠悠', '小阿枫', '张远', '赵乃吉', '张紫豪', '陈雅森', '魏佳艺', '花僮',
 }
 
 # 中文名常用尾字（无分隔符时辅助判断歌手与歌名边界）
@@ -139,56 +318,104 @@ _ARTIST_END_CHARS = set('婕囡婷欣馨彤琳琪瑶璇莹雯璐琼玲珊岚萱�
 _ARTIST_END_CHARS.add('兮')  # 囎（同形异码，形似 囡 U+56E1）
 
 
-def parse_song_title(title_raw):
-    """从 qeecc 标题格式解析出歌曲名和歌手
-    格式示例: 陈奕迅·孤勇者[MP3]  或  半吨兄弟·再见[MP3]
+def clean_qeecc_title_text(text):
+    if text is None:
+        return ''
 
-    策略:
-    1. 先尝试分隔符拆分（歌手·歌曲名）
-    2. 若无分隔符，用 COMMON_ARTISTS 匹配前缀
-    3. 再根据中文名常用尾字启发式拆分
-    4. 仍失败则整段作为歌名，未知歌手
-    """
-    title = title_raw.strip()
+    title = re.sub(r'\s+', ' ', str(text)).strip()
+    if not title:
+        return ''
+
+    title = re.sub(r'\s*(?:[-|·•]\s*)?(?:qeecc|酷我音乐)\s*$', '', title, flags=re.IGNORECASE)
+    title = re.sub(r'^[\s&＆·•\-—_]+', '', title)
+    return title.strip()
+
+
+def normalize_qeecc_song_url(raw_url):
+    if not raw_url:
+        return None
+
+    url = str(raw_url).strip()
+    if not url or url.startswith(('javascript:', '#', 'mailto:')):
+        return None
+
+    match = re.search(r"(/song/[^'\" <>()]+)", url, flags=re.IGNORECASE)
+    if match:
+        url = match.group(1)
+
+    if url.startswith('//'):
+        url = 'https:' + url
+    elif url.startswith('/'):
+        url = QEECC_BASE + url
+    elif not url.startswith('http'):
+        url = QEECC_BASE + '/' + url.lstrip('/')
+
+    return url if '/song/' in url else None
+
+
+def extract_qeecc_song_url_from_tag(tag):
+    if tag is None:
+        return None
+
+    for attr in ('href', 'data-href', 'data-url', 'data-link'):
+        url = normalize_qeecc_song_url(tag.get(attr))
+        if url:
+            return url
+
+    onclick = tag.get('onclick')
+    if onclick:
+        url = normalize_qeecc_song_url(onclick)
+        if url:
+            return url
+
+    return None
+
+
+def is_security_verification_text(text):
+    if not text:
+        return False
+
+    normalized = re.sub(r'\s+', '', str(text)).lower()
+    blocked_markers = ('安全验证', '安全检查', '验证码', '访问过于频繁', 'captcha', 'robot', 'verify')
+    return any(marker in normalized for marker in blocked_markers)
+
+
+def parse_song_title(title_raw):
+    title = clean_qeecc_title_text(title_raw)
     if not title:
         return '未知歌曲', '未知歌手'
 
-    # 去掉后缀标签（大小写不敏感）
     title = re.sub(r'\[(?:MP3|Mp3|FLAC|Mp3_Lrc|APE|WAV)\]', '', title, flags=re.IGNORECASE)
-    # 去掉书卷号《》
     title = re.sub(r'[《》]', '', title)
     title = title.strip()
 
     artist = '未知歌手'
     song_name = title
 
-    # 策略 1：分隔符拆分（· • － — - | / 等）
     sep_match = re.search(r'^(.+?)[·•・－—\-\\|/](.+)$', title)
     if sep_match:
         candidate = sep_match.group(1).strip()
         if candidate and len(candidate) < 30:
             return sep_match.group(2).strip(), candidate
 
-    # 策略 2：无分隔符时，用常见歌手字典匹配前缀
-    # 按名字长度降序匹配（避免"谢天笑"被"谢天"短匹配截胡）
-    for a in sorted(COMMON_ARTISTS, key=len, reverse=True):
+    normalized_artists = sorted({a.strip() for a in COMMON_ARTISTS if a and a.strip()}, key=len, reverse=True)
+    for a in normalized_artists:
         if title.startswith(a):
             rest = title[len(a):].strip()
             if rest and len(rest) >= 2:
                 return rest, a
 
-    # 策略 3：用中文名常用尾字启发式拆分
-    # 取前 2~4 字，若末尾字是常见歌手名尾字，视为歌手名
     for split_pos in (4, 3, 2):
         if split_pos >= len(title):
             continue
-        candidate = title[:split_pos]
-        if candidate[-1] in _ARTIST_END_CHARS:
-            rest = title[split_pos:].strip()
-            if rest and len(rest) >= 2:
-                return rest, candidate
+        artist_part = title[:split_pos]
+        song_part = title[split_pos:]
+        if len(song_part) < 2:
+            continue
+        if artist_part[-1] in _ARTIST_END_CHARS:
+            return song_part.strip(), artist_part.strip()
 
-    return song_name, artist
+    return song_name or '未知歌曲', artist or '未知歌手'
 
 
 def extract_song_id(song_url):
@@ -200,9 +427,6 @@ def extract_song_id(song_url):
 
 
 def get_qeecc_play_data(song_id):
-    """通过 qeecc 的播放 API 获取 MP3 地址
-    POST /js/play.php {id, type} → {url, pic, lkid, name, ...}
-    """
     sess = get_qeecc_session()
     try:
         resp = sess.post(
@@ -219,77 +443,145 @@ def get_qeecc_play_data(song_id):
         return None, '播放接口返回数据异常'
 
 
+def fetch_kuwo_lyrics(lkid):
+    if not lkid:
+        return []
+
+    try:
+        resp = requests.get(
+            KUWO_LYRIC_URL.format(urllib.parse.quote(str(lkid))),
+            headers={
+                'User-Agent': HEADERS['User-Agent'],
+                'Referer': 'http://m.kuwo.cn/',
+            },
+            timeout=15,
+        )
+        resp.encoding = 'utf-8'
+        data = resp.json()
+    except (requests.RequestException, json.JSONDecodeError, ValueError):
+        return []
+
+    lyric_list = data.get('data', {}).get('lrclist') if isinstance(data.get('data'), dict) else None
+    if not isinstance(lyric_list, list):
+        return []
+
+    lyrics = []
+    for item in lyric_list:
+        if not isinstance(item, dict):
+            continue
+        line = str(item.get('lineLyric', '')).strip()
+        if not line:
+            continue
+        try:
+            time_value = float(item.get('time', 0) or 0)
+        except (TypeError, ValueError):
+            time_value = 0
+        lyrics.append({'time': time_value, 'text': line})
+
+    return lyrics
+
+
 def search_qeecc(keyword):
-    """搜索 qeecc 网站，返回歌曲列表"""
+    cached_results = get_cached_search_results(keyword)
+    if cached_results is not None:
+        return cached_results
+
     sess = get_qeecc_session()
     encoded = urllib.parse.quote(keyword)
     url = f'{QEECC_BASE}/so/{encoded}.html'
+    results = []
+    seen_keys = set()
+    blocked_error = None
+    qeecc_error = None
+
     try:
         resp = sess.get(url, timeout=15)
-        resp.encoding = 'utf-8'
+        resp.raise_for_status()
+        resp.encoding = resp.apparent_encoding or 'utf-8'
     except requests.RequestException as e:
-        return {'error': f'搜索请求失败: {str(e)}'}, 502
+        qeecc_error = f'搜索请求失败: {str(e)}'
+    else:
+        soup = BeautifulSoup(resp.text, 'html.parser')
 
-    soup = BeautifulSoup(resp.text, 'html.parser')
-    results = []
-    seen_hrefs = set()
+        for tag in soup.find_all(True):
+            if tag.name in {'script', 'style', 'noscript'}:
+                continue
 
-    # 搜索结果页面中，歌曲链接格式为 <a href="/song/xxx.html"> 标题[Mp3]
-    for link in soup.find_all('a', href=True):
-        href = link['href']
-        if '/song/' not in href:
-            continue
-        if href.startswith('//'):
-            href = 'https:' + href
-        elif not href.startswith('http'):
-            href = QEECC_BASE + '/' + href.lstrip('/')
+            href = extract_qeecc_song_url_from_tag(tag)
+            if not href:
+                continue
 
-        if href in seen_hrefs:
-            continue
-        seen_hrefs.add(href)
+            raw_title = clean_qeecc_title_text(
+                tag.get_text(' ', strip=True)
+                or tag.get('title', '')
+                or tag.get('aria-label', '')
+                or tag.get('data-title', '')
+                or tag.get('alt', '')
+            )
+            if not raw_title:
+                continue
 
-        raw_title = link.get_text(strip=True) or link.get('title', '')
-        raw_title = raw_title.strip()
-        if not raw_title:
-            continue
+            song_name, artist = parse_song_title(raw_title)
+            qecc_id = extract_song_id(href)
+            song_id = str(uuid.uuid5(uuid.NAMESPACE_URL, href) if not qecc_id else qecc_id)
+            dedupe_key = song_id or f'{song_name}|{artist}'
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
 
-        song_name, artist = parse_song_title(raw_title)
-        qecc_id = extract_song_id(href)
-        song_id = str(uuid.uuid5(uuid.NAMESPACE_URL, href) if not qecc_id else qecc_id)
+            results.append({
+                'id': song_id,
+                'title': song_name,
+                'artist': artist,
+                'url': href,
+                'source': 'qeecc',
+            })
 
-        results.append({
-            'id': song_id,
-            'title': song_name,
-            'artist': artist,
-            'url': href,
-            'source': 'qeecc',
-        })
+        if not results:
+            for match in re.finditer(r'(/song/[^\'" <>()]+)', resp.text, flags=re.IGNORECASE):
+                href = normalize_qeecc_song_url(match.group(1))
+                if not href:
+                    continue
 
-    # 去重
-    seen_titles = set()
-    unique_results = []
-    for r in results:
-        key = r['title'] + r['artist']
-        if key not in seen_titles:
-            seen_titles.add(key)
-            unique_results.append(r)
+                qecc_id = extract_song_id(href)
+                song_id = str(uuid.uuid5(uuid.NAMESPACE_URL, href) if not qecc_id else qecc_id)
+                if song_id in seen_keys:
+                    continue
+                seen_keys.add(song_id)
 
-    return unique_results[:30]
+                results.append({
+                    'id': song_id,
+                    'title': '未知歌曲',
+                    'artist': '未知歌手',
+                    'url': href,
+                    'source': 'qeecc',
+                })
 
+        if not results:
+            page_text = soup.get_text(' ', strip=True).lower()
+            blocked_markers = ('安全验证', '安全检查', '验证码', '访问过于频繁', 'captcha', 'robot', 'verify')
+            if any(marker.lower() in page_text for marker in blocked_markers):
+                blocked_error = '搜索页面返回了安全验证内容，请稍后重试'
+
+    if results:
+        store_search_results(keyword, results)
+        return results[:30]
+
+
+    if blocked_error:
+        return {'error': blocked_error}, 502
+    if qeecc_error:
+        return {'error': qeecc_error}, 502
+
+    return []
 
 def extract_mp3_url(song_url):
-    """通过 qeecc 播放 API 获取 MP3 直链"""
-    song_id = extract_song_id(song_url)
-    if not song_id:
-        return None, '无法从链接中提取歌曲 ID'
-
-    data, err = get_qeecc_play_data(song_id)
+    """从歌曲链接中获取可播放直链"""
+    info, err = get_song_info(song_url)
     if err:
         return None, err
-    if not data:
-        return None, '播放接口返回空数据'
 
-    mp3_url = data.get('url', '')
+    mp3_url = str(info.get('mp3_url', '') or '').strip()
     if not mp3_url:
         return None, '播放接口返回数据中无 MP3 链接'
 
@@ -300,38 +592,90 @@ def extract_mp3_url(song_url):
 
 
 def get_song_info(song_url):
-    """获取歌曲详细信息，优先使用播放 API"""
-    song_id = extract_song_id(song_url)
+    if not song_url:
+        return {'error': '无法提取歌曲链接'}, '无法提取歌曲链接'
+
+    normalized_url = str(song_url).strip()
+    if not normalized_url:
+        return {'error': '无法提取歌曲链接'}, '无法提取歌曲链接'
+
+    if re.search(r'\.mp3(?:[?#].*)?$', normalized_url, flags=re.IGNORECASE):
+        return {
+            'title': '未知歌曲',
+            'artist': '未知歌手',
+            'mp3_url': normalized_url,
+            'source_url': normalized_url,
+            'cover_url': '',
+            'lyric_id': '',
+            'lyrics': [],
+        }, None
+
+    itzo_results, itzo_err = fetch_itzo_results(normalized_url, filter_value='url', music_type='_', page=1)
+    if itzo_results:
+        info = normalize_itzo_song(itzo_results[0])
+        if info:
+            return {
+                'title': info.get('title', '未知歌曲') or '未知歌曲',
+                'artist': info.get('artist', '未知歌手') or '未知歌手',
+                'mp3_url': info.get('mp3_url', '') or '',
+                'source_url': info.get('source_url', normalized_url) or normalized_url,
+                'cover_url': info.get('cover_url', '') or '',
+                'lyric_id': '',
+                'lyrics': info.get('lyrics', []) or [],
+            }, None
+
+    song_id = extract_song_id(normalized_url)
     if not song_id:
+        if itzo_err:
+            return {'error': itzo_err}, itzo_err
         return {'error': '无法提取歌曲 ID'}, '无法提取歌曲 ID'
 
-    # 获取 MP3 链接
-    mp3_url, err = extract_mp3_url(song_url)
+    play_data, err = get_qeecc_play_data(song_id)
+    mp3_url = ''
+    cover_url = ''
+    lyric_id = ''
+    lyrics = []
+    song_name, artist = '未知歌曲', '未知歌手'
 
-    # 从页面提取标题和歌手
+    if play_data:
+        mp3_url = play_data.get('url', '') or ''
+        if mp3_url.startswith('//'):
+            mp3_url = 'https:' + mp3_url
+        cover_url = play_data.get('pic', '') or ''
+        lyric_id = str(play_data.get('lkid', '') or '')
+
+        raw_name = play_data.get('name', '') or play_data.get('title', '')
+        if raw_name and not is_security_verification_text(raw_name):
+            song_name, artist = parse_song_title(raw_name)
+        lyrics = fetch_kuwo_lyrics(lyric_id)
+
     sess = get_qeecc_session()
     try:
-        resp = sess.get(song_url, timeout=15)
+        resp = sess.get(normalized_url, timeout=15)
         resp.encoding = 'utf-8'
         soup = BeautifulSoup(resp.text, 'html.parser')
         title_tag = soup.find('title')
         raw_title = title_tag.get_text(strip=True) if title_tag else ''
-        song_name, artist = parse_song_title(raw_title) if raw_title else ('未知歌曲', '未知歌手')
+        if raw_title and not is_security_verification_text(raw_title):
+            if song_name == '未知歌曲' or artist == '未知歌手':
+                song_name, artist = parse_song_title(raw_title)
     except Exception:
-        # 如果页面获取失败，尝试从播放 API 获取
-        data, _ = get_qeecc_play_data(song_id)
-        if data:
-            raw_name = data.get('name', '') or data.get('title', '')
-            song_name, artist = parse_song_title(raw_name) if raw_name else ('未知歌曲', '未知歌手')
-        else:
-            song_name, artist = '未知歌曲', '未知歌手'
+        pass
+
+    if not mp3_url:
+        mp3_url, err = extract_mp3_url(normalized_url)
 
     return {
         'title': song_name or '未知歌曲',
         'artist': artist or '未知歌手',
         'mp3_url': mp3_url,
-        'source_url': song_url,
+        'source_url': normalized_url,
+        'cover_url': cover_url,
+        'lyric_id': lyric_id,
+        'lyrics': lyrics,
     }, err
+
+
 
 
 # ─── 路由 ──────────────────────────────────────────────────
@@ -343,12 +687,12 @@ def index():
 
 @app.route('/api/search')
 def api_search():
-    """搜索 qeecc 歌曲"""
+    """搜索 itzo 歌曲"""
     q = request.args.get('q', '').strip()
     if not q:
         return jsonify({'error': '请输入搜索关键词'}), 400
 
-    results = search_qeecc(q)
+    results = search_itzo(q)
     if isinstance(results, tuple):
         return jsonify(results[0]), results[1]
 
@@ -473,7 +817,7 @@ def api_proxy_stream():
 
 @app.route('/api/download', methods=['POST'])
 def api_download():
-    """从 qeecc 下载 MP3 到本地"""
+    """下载歌曲到本地"""
     data = request.get_json()
     song_url = data.get('url', '').strip()
     title = data.get('title', '').strip()
@@ -481,25 +825,31 @@ def api_download():
     if not song_url:
         return jsonify({'error': '缺少歌曲链接'}), 400
 
-    # 获取 MP3 链接
-    mp3_url, err = extract_mp3_url(song_url)
-    if err:
-        return jsonify({'error': f'获取下载链接失败: {err}'}), 502
+    if re.search(r'\.mp3(?:[?#].*)?$', song_url, flags=re.IGNORECASE):
+        mp3_url = song_url
+    else:
+        mp3_url, err = extract_mp3_url(song_url)
+        if err:
+            return jsonify({'error': f'获取下载链接失败: {err}'}), 502
 
     if not title:
         info, _ = get_song_info(song_url)
         if info:
             title = info.get('title', '未知歌曲') or '未知歌曲'
+        else:
+            parsed = urllib.parse.urlparse(song_url)
+            fallback_title = os.path.splitext(os.path.basename(parsed.path))[0].strip()
+            title = fallback_title or '未知歌曲'
 
-    # 清理文件名
-    safe_title = re.sub(r'[\\/:*?"<>|]', '_', title).strip()
+    # 清理文件名中的非法字符
+    safe_title = re.sub(r'[\/:*?"<>|]', '_', title).strip()
     filename = f'{safe_title}_{int(time.time())}.mp3'
     filepath = os.path.join(MUSIC_DIR, filename)
 
     # 确保目录存在
     os.makedirs(MUSIC_DIR, exist_ok=True)
 
-    # kuwo.cn CDN 需要去掉 Referer，否则返回 403
+    # 只保留最小请求头，降低触发反爬的概率
     dl_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     }
@@ -521,13 +871,10 @@ def api_download():
             'size': total_size,
         })
     except requests.RequestException as e:
-        # 下载失败清理残留
         if os.path.exists(filepath):
             os.remove(filepath)
         return jsonify({'error': f'下载失败: {str(e)}'}), 502
 
-
-# ─── 收藏 API ──────────────────────────────────────────────
 
 @app.route('/api/favorites', methods=['GET'])
 def api_get_favorites():

@@ -134,6 +134,13 @@ function getSongMeta(song) {
     return `${artist} · ${source} · ${cache}`;
 }
 
+function isBlockedSongText(text) {
+    if (!text) return false;
+    const normalized = String(text).replace(/\s+/g, '').toLowerCase();
+    return ['安全验证', '安全检查', '验证码', '访问过于频繁', 'captcha', 'robot', 'verify']
+        .some(marker => normalized.includes(marker));
+}
+
 function hasRealLyrics(song) {
     return !!(song && Array.isArray(song.lyrics) && song.lyrics.some(item => String(item && (item.text || item.lineLyric || item.line || '')).trim()));
 }
@@ -755,7 +762,7 @@ async function playSong(songId) {
     if (song.downloaded && song.filename) {
         audioUrl = `/api/stream/${encodeURIComponent(song.filename)}`;
     } else if (song.url) {
-        // 如果是 qeecc 搜索结果，先获取 MP3 链接再代理播放
+        // 如果是在线结果，先补全直链再代理播放
         const hydrated = await loadOnlineSongInfo(song);
         if (!hydrated) return;
         song = hydrated.song;
@@ -812,12 +819,22 @@ function resolvePlayableSong(songId) {
         };
     }
 
+    if (/^https?:\/\//i.test(songId)) {
+        return {
+            id: songId,
+            title: '未知歌曲',
+            artist: '未知歌手',
+            url: songId,
+            downloaded: false,
+        };
+    }
+
     if (/^[A-Za-z0-9_-]+$/.test(songId)) {
         return {
             id: songId,
             title: '未知歌曲',
             artist: '未知歌手',
-            url: `https://www.qeecc.com/song/${songId}.html`,
+            url: 'https://www.qeecc.com/song/' + songId + '.html',
             downloaded: false,
         };
     }
@@ -859,8 +876,8 @@ function mergeSongInfo(song, info) {
     if (!song || !info) return song;
     const merged = {
         ...song,
-        title: info.title || song.title,
-        artist: info.artist || song.artist,
+        title: isBlockedSongText(info.title) ? song.title : (info.title || song.title),
+        artist: isBlockedSongText(info.artist) ? song.artist : (info.artist || song.artist),
         cover_url: info.cover_url || song.cover_url,
         lyric_id: info.lyric_id || song.lyric_id,
         mp3_url: info.mp3_url || song.mp3_url,
@@ -875,12 +892,37 @@ function mergeSongInfo(song, info) {
 }
 
 async function loadOnlineSongInfo(song) {
-    if (!song || !song.url || song.downloaded) {
+    if (!song) {
         return {
             song,
-            audioUrl: song && song.downloaded && song.filename
-                ? `/api/stream/${encodeURIComponent(song.filename)}`
-                : '',
+            audioUrl: '',
+        };
+    }
+
+    if (song.downloaded && song.filename) {
+        return {
+            song,
+            audioUrl: "/api/stream/" + encodeURIComponent(song.filename),
+        };
+    }
+
+    const directMp3Url = song.mp3_url || (song.url && /\.mp3(?:[?#].*)?$/i.test(song.url) ? song.url : '');
+    if (directMp3Url) {
+        return {
+            song: mergeSongInfo(song, {
+                title: song.title,
+                artist: song.artist,
+                mp3_url: directMp3Url,
+                source_url: song.source_url || song.url,
+                cover_url: song.cover_url,
+            }),
+            audioUrl: "/api/proxy-stream?url=" + encodeURIComponent(directMp3Url),
+        };
+    }
+    if (!song.url) {
+        return {
+            song,
+            audioUrl: '',
         };
     }
 
@@ -889,9 +931,10 @@ async function loadOnlineSongInfo(song) {
 
     return {
         song: mergeSongInfo(song, info),
-        audioUrl: `/api/proxy-stream?url=${encodeURIComponent(info.mp3_url)}`,
+        audioUrl: "/api/proxy-stream?url=" + encodeURIComponent(info.mp3_url),
     };
 }
+
 
 function togglePlayPause() {
     if (!state.currentSong && !audio.src) {
@@ -1124,7 +1167,8 @@ async function downloadSong(songId) {
     if (!song) return toast('找不到歌曲', true);
     if (song.downloaded) return toast('已下载过了');
 
-    if (!song.url) return toast('没有下载链接', true);
+    const downloadUrl = song.mp3_url || song.url;
+    if (!downloadUrl) return toast('没有下载链接', true);
 
     toast('开始下载...');
     try {
@@ -1132,7 +1176,7 @@ async function downloadSong(songId) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                url: song.url,
+                url: downloadUrl,
                 title: song.title,
             }),
         });
@@ -1150,9 +1194,6 @@ async function downloadSong(songId) {
         toast('下载请求失败', true);
     }
 }
-
-// ─── 收藏 ───────────────────────────────────────────────
-
 async function toggleFavorite(songId) {
     const song = findSongInState(songId);
     if (!song) return toast('找不到歌曲', true);
@@ -1703,6 +1744,13 @@ async function restorePlaybackState() {
 
     // 恢复当前歌曲
     let song = data.currentSong;
+    if (isBlockedSongText(song.title) || isBlockedSongText(song.artist)) {
+        song = {
+            ...song,
+            title: song.title && !isBlockedSongText(song.title) ? song.title : '未知歌曲',
+            artist: song.artist && !isBlockedSongText(song.artist) ? song.artist : '未知歌手',
+        };
+    }
     state.currentSong = song;
     playerBar.style.display = 'flex';
     playerTitle.textContent = song.title || '未知歌曲';
