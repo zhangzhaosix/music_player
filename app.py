@@ -132,8 +132,21 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
     if not isinstance(item, dict):
         return None
 
-    title = str(item.get('title', '') or item.get('song', '') or item.get('name', '')).strip() or '未知歌曲'
-    artist = str(item.get('author', '') or item.get('singer', '') or item.get('artist', '') or item.get('singer_name', '')).strip() or '未知歌手'
+    title = str(
+        item.get('title', '')
+        or item.get('song_title', '')
+        or item.get('song_name', '')
+        or item.get('music_name', '')
+        or item.get('song', '')
+        or item.get('name', '')
+    ).strip() or '未知歌曲'
+    artist = str(
+        item.get('author', '')
+        or item.get('singer', '')
+        or item.get('artist', '')
+        or item.get('singer_name', '')
+        or item.get('singername', '')
+    ).strip() or '未知歌手'
     url = str(url or item.get('url', '') or '').strip()
     source_url = str(source_url or item.get('link', '') or '').strip()
     mp3_url = str(mp3_url or item.get('music_url', '') or item.get('url', '') or '').strip()
@@ -163,7 +176,6 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
         'songid': item.get('songid', item.get('id', '')),
         'lyrics': parse_lrc_text(lyrics_text or item.get('lrc', '') or item.get('lyric', '') or ''),
     }
-
 
 def fetch_qjjlb_json(url, params=None, timeout=20):
     sess = get_qjjlb_session()
@@ -302,10 +314,9 @@ def search_qjjlb(keyword, limit=30):
     seen_keys = set()
     source_limit = max(1, min(10, limit))
     source_fetchers = [
-        lambda: search_qjjlb_migu(keyword, source_limit),
-        lambda: search_qjjlb_netease(keyword, 1, source_limit),
         lambda: search_qjjlb_qq(keyword, source_limit),
         lambda: search_qjjlb_kuwo(keyword, source_limit),
+        lambda: search_qjjlb_netease(keyword, 1, source_limit),
     ]
 
     for fetcher in source_fetchers:
@@ -596,6 +607,35 @@ def fetch_kuwo_lyrics(lkid):
     return lyrics
 
 
+def extract_media_url_from_html(html):
+    if not html:
+        return ''
+
+    text = str(html).replace('\\/', '/')
+
+    patterns = [
+        r'https?://[^"\']+\.(?:m4a|mp3|aac|flac|m3u8)(?:\?[^"\']*)?',
+        r'//[^"\']+\.(?:m4a|mp3|aac|flac|m3u8)(?:\?[^"\']*)?',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            url = match.group(0)
+            return 'https:' + url if url.startswith('//') else url
+
+    for key in ('playUrl', 'playurl', 'songUrl', 'songurl', 'audioUrl', 'audiourl', 'url', 'src'):
+        match = re.search(rf'"{key}"\s*:\s*"([^"]+)"', text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        url = match.group(1).replace('\\/', '/')
+        if url.startswith('//'):
+            url = 'https:' + url
+        if re.search(r'\.(?:m4a|mp3|aac|flac|m3u8)(?:[?#].*)?$', url, flags=re.IGNORECASE):
+            return url
+
+    return ''
+
+
 def search_qeecc(keyword):
     cached_results = get_cached_search_results(keyword)
     if cached_results is not None:
@@ -724,12 +764,32 @@ def resolve_qjjlb_song_info(song_url):
         if lrc_url:
             lrc_text, _ = fetch_qjjlb_text(lrc_url)
 
+        source_url = str(payload.get('link', '') or '').strip() or str(payload.get('song_url', '') or '').strip()
+        mp3_url = str(payload.get('music_url', '') or payload.get('url', '') or '').strip()
+        if not mp3_url and source_url.startswith('http'):
+            try:
+                resp = requests.get(
+                    source_url,
+                    headers={
+                        'User-Agent': HEADERS['User-Agent'],
+                        'Referer': 'https://music.migu.cn/',
+                    },
+                    timeout=15,
+                )
+                resp.encoding = resp.apparent_encoding or 'utf-8'
+                mp3_url = extract_media_url_from_html(resp.text)
+            except requests.RequestException:
+                mp3_url = ''
+
+        if not mp3_url:
+            return None, 'migu 音源暂时不可用'
+
         info = make_qjjlb_song(
             'migu',
             payload,
             url=str(song_url).strip(),
-            source_url=payload.get('link', QJJLB_BASE),
-            mp3_url=payload.get('music_url', '') or payload.get('url', ''),
+            source_url=source_url or QJJLB_BASE,
+            mp3_url=mp3_url,
             cover_url=payload.get('cover', '') or payload.get('pic', ''),
             lyrics_text=lrc_text or payload.get('lrc', ''),
         )

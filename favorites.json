@@ -27,15 +27,6 @@
     "added_at": "2026-06-08T10:40:02.864672"
   },
   {
-    "id": "aXNneGdpY3k",
-    "title": "最好的安排",
-    "artist": "曲婉婷",
-    "url": "https://www.qeecc.com/song/aXNneGdpY3k.html",
-    "filename": "",
-    "downloaded": false,
-    "added_at": "2026-06-08T10:41:12.928552"
-  },
-  {
     "id": "eGNpa2NuZ3h5",
     "title": "知我 (齐静春)",
     "artist": "谭渊",
@@ -150,6 +141,141 @@
     "url": "https://www.qeecc.com/song/Y25zY3l5Z2k.html",
     "filename": "",
     "downloaded": false,
-    "added_at": "2026-06-12T10:40:52.341683"
+    "added_at": "2026-06-15T08:39:04.705844"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=185726",
+    "title": "再见",
+    "artist": "张震岳",
+    "url": "http://music.163.com/#/song?id=185726",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T13:56:46.723471"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=185712",
+    "title": "小宇",
+    "artist": "张震岳",
+    "url": "http://music.163.com/#/song?id=185712",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T13:57:02.211145"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=2134508204",
+    "title": "小宇",
+    "artist": "蓝心羽",
+    "url": "http://music.163.com/#/song?id=2134508204",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T13:57:03.491109"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=3342375515",
+    "title": "慢慢",
+    "artist": "Moon,大头针",
+    "url": "http://music.163.com/#/song?id=3342375515",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T13:59:44.994001"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=863046037",
+    "title": "Way Back Home",
+    "artist": "SHAUN",
+    "url": "http://music.163.com/#/song?id=863046037",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T14:01:37.341181"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=25643093",
+    "title": "大城小爱(Live)",
+    "artist": "王力宏",
+    "url": "http://music.163.com/#/song?id=25643093",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T14:02:00.535664"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=391566",
+    "title": "一吻天荒",
+    "artist": "胡歌",
+    "url": "http://music.163.com/#/song?id=391566",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T14:02:11.907124"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=2030429878",
+    "title": "一吻天荒（热血版）",
+    "artist": "张小兜",
+    "url": "http://music.163.com/#/song?id=2030429878",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T14:02:15.942107"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=1403318151",
+    "title": "把回忆拼好给你",
+    "artist": "王贰浪",
+    "url": "http://music.163.com/#/song?id=1403318151",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T14:02:27.827097"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=2025172379",
+    "title": "把回忆拼好给你（新版）（翻自 cici ）",
+    "artist": "西罕",
+    "url": "http://music.163.com/#/song?id=2025172379",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T14:02:51.604244"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=1973665667",
+    "title": "海屿你",
+    "artist": "马也_Crabbit",
+    "url": "http://music.163.com/#/song?id=1973665667",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-19T14:03:06.220855"
+  },
+  {
+    "id": "http://music.163.com/#/song?id=1420706073",
+    "title": "离开我的依赖",
+    "artist": "王艳薇",
+    "url": "http://music.163.com/#/song?id=1420706073",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-20T10:06:22.822500"
+  },
+  {
+    "id": "a6932255-42fe-565d-aca0-091604b3769a",
+    "title": "未知歌曲",
+    "artist": "曲婉婷",
+    "url": "qjjlb://qq?msg=%E6%9C%80%E5%A5%BD%E7%9A%84%E5%AE%89%E6%8E%92&mid=000XKR0V01Q3dd",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-20T11:01:29.101100"
+  },
+  {
+    "id": "a58e6e2e-f24e-5ec8-b735-e4c451425bec",
+    "title": "未知歌曲",
+    "artist": "王艳薇",
+    "url": "qjjlb://qq?msg=%E7%A6%BB%E5%BC%80%E6%88%91%E7%9A%84%E4%BE%9D%E8%B5%96&mid=001GOlCd2HImcY",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-20T11:03:03.399285"
+  },
+  {
+    "id": "3a2ac9b5-51fb-52e2-ab5f-6cab55be43f3",
+    "title": "未知歌曲",
+    "artist": "en (王翊恩)",
+    "url": "qjjlb://qq?msg=%E7%A6%BB%E5%BC%80%E6%88%91%E7%9A%84%E4%BE%9D%E8%B5%96en&mid=003083Ug1sJjPC",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-06-20T11:03:14.046315"
   }
 ]

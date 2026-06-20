@@ -3,106 +3,194 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>♫ 我的音乐</title>
+    <title>我的音乐</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="/static/style.css">
-    <meta name="theme-color" content="#0a0a0f">
+    <meta name="theme-color" content="#101B12">
 </head>
 <body>
     <div class="app-container">
-        <!-- 顶部标题 -->
-        <header class="app-header">
-            <h1>♫ 我的音乐</h1>
+        <header class="app-header" aria-label="音乐播放器顶部工具栏">
+            <div class="brand-mark">
+                <span class="brand-dot" aria-hidden="true"></span>
+                <span>我的音乐</span>
+            </div>
+            <button id="libraryToggle" class="icon-text-btn" type="button" aria-controls="libraryPanel" aria-expanded="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5h16M4 12h16M4 17.5h16"/></svg>
+                音乐库
+            </button>
         </header>
 
-        <!-- 搜索栏 -->
-        <div class="search-bar">
-            <input type="text" id="searchInput" placeholder="搜索歌曲、歌手..." autocomplete="off">
-            <button id="searchBtn">搜索</button>
-        </div>
-
-        <!-- 选项卡 -->
-        <nav class="tabs">
-            <button class="tab" data-tab="search">搜索结果</button>
-            <button class="tab active" data-tab="favorites">收藏</button>
-            <button class="tab" data-tab="playlists">我的歌单</button>
-            <button class="tab" data-tab="downloads">下载</button>
-        </nav>
-
-        <!-- 主内容区 -->
-        <div class="main-layout">
-            <!-- 歌曲内容 -->
-            <main class="content-area">
-                <!-- 搜索结果 -->
-                <div id="tab-search" class="tab-content">
-                    <div id="searchResults" class="song-list"></div>
+        <main class="music-player-page" aria-label="暗色黑胶音乐播放器">
+            <section class="vinyl-stage" aria-label="黑胶唱片区域">
+                <div class="tonearm" aria-hidden="true">
+                    <div class="tonearm-base"></div>
+                    <div class="tonearm-rail"></div>
+                    <div class="tonearm-needle"></div>
                 </div>
-                <!-- 收藏 -->
-                <div id="tab-favorites" class="tab-content active">
-                    <div id="favSongs" class="song-list"></div>
-                </div>
-                <!-- 下载 -->
-                <div id="tab-downloads" class="tab-content">
-                    <div id="downloadSongs" class="song-list"></div>
-                </div>
-                <!-- 我的歌单 -->
-                <div id="tab-playlists" class="tab-content">
-                    <div class="pl-tab-header">
-                        <button id="addPlaylistBtn" class="btn-primary">+ 新建歌单</button>
+                <div id="vinylRecord" class="vinyl-record" aria-hidden="true">
+                    <div class="vinyl-groove groove-a"></div>
+                    <div class="vinyl-groove groove-b"></div>
+                    <div class="vinyl-groove groove-c"></div>
+                    <div id="albumCover" class="album-cover">
+                        <span id="albumInitial">♪</span>
                     </div>
-                    <div class="playlists-grid" id="playlistsGrid"></div>
                 </div>
-                <!-- 歌单详情 -->
-                <div id="tab-playlist-detail" class="tab-content">
-                    <div class="playlist-detail-header">
-                        <h2 id="playlistDetailName"></h2>
-                        <span id="playlistDetailCount" class="song-count"></span>
-                    </div>
-                    <div id="playlistDetailSongs" class="song-list"></div>
+                <div class="vinyl-caption">
+                    <span id="vinylState">Paused</span>
+                    <strong id="ambientSongTitle">选择一首歌开始播放</strong>
                 </div>
-            </main>
-        </div>
+            </section>
 
-        <!-- 新建歌单弹窗 -->
+            <section class="song-panel" aria-label="歌曲信息和歌词">
+                <div class="song-info-hero">
+                    <p id="songSource" class="song-source">LOCAL PLAYER</p>
+                    <h1 id="heroSongTitle">沉浸式黑胶播放器</h1>
+                    <p id="heroSongMeta">在音乐库中选择歌曲，播放后唱片会随音乐缓慢旋转。</p>
+                </div>
+
+                <div class="lyric-tabs" role="tablist" aria-label="歌曲内容">
+                    <button class="lyric-tab active" type="button" data-lyric-tab="lyrics" role="tab" aria-selected="true">歌词</button>
+                    <button class="lyric-tab" type="button" data-lyric-tab="about" role="tab" aria-selected="false">百科</button>
+                    <button class="lyric-tab" type="button" data-lyric-tab="related" role="tab" aria-selected="false">相关推荐</button>
+                </div>
+
+                <div class="lyric-panels">
+                    <div id="lyricsPanel" class="lyric-panel active" data-panel="lyrics" role="tabpanel">
+                        <div id="lyricsList" class="lyrics-list" aria-live="polite"></div>
+                    </div>
+                    <div class="lyric-panel info-panel" data-panel="about" role="tabpanel">
+                        <p id="aboutSongText">当前页面保留原有搜索、收藏、下载和歌单能力；歌曲百科区域作为轻量信息位，不额外抓取第三方资料。</p>
+                    </div>
+                    <div class="lyric-panel info-panel" data-panel="related" role="tabpanel">
+                        <p id="relatedSongText">相关推荐会优先使用当前播放队列。打开音乐库可继续搜索、收藏或管理歌单。</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <div id="libraryBackdrop" class="library-backdrop" hidden></div>
+        <aside id="libraryPanel" class="library-panel" aria-label="音乐库" aria-hidden="true">
+            <div class="library-header">
+                <div>
+                    <p>LIBRARY</p>
+                    <h2>音乐库</h2>
+                </div>
+                <button id="closeLibraryPanel" class="icon-btn" type="button" aria-label="关闭音乐库">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+            </div>
+
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="搜索歌曲、歌手..." autocomplete="off">
+                <button id="searchBtn" type="button">搜索</button>
+            </div>
+
+            <nav class="tabs" aria-label="音乐库分类">
+                <button class="tab" type="button" data-tab="search">搜索结果</button>
+                <button class="tab active" type="button" data-tab="favorites">收藏</button>
+                <button class="tab" type="button" data-tab="playlists">我的歌单</button>
+                <button class="tab" type="button" data-tab="downloads">下载</button>
+            </nav>
+
+            <div class="page-tools">
+                <div id="batchToolbar" class="batch-toolbar hidden">
+                    <span id="batchCount" class="batch-count">已选择 0 首</span>
+                    <button id="batchCancelBtn" class="tool-btn" type="button">取消选择</button>
+                    <button id="batchFavoriteBtn" class="tool-btn" type="button">批量收藏</button>
+                    <button id="batchPlaylistBtn" class="tool-btn" type="button">加入歌单</button>
+                    <button id="batchDeleteBtn" class="tool-btn danger" type="button">删除本地下载</button>
+                    <button id="batchSelectAllBtn" class="tool-btn" type="button">全选当前页</button>
+                </div>
+                <div class="backup-toolbar">
+                    <button id="exportBackupBtn" class="tool-btn subtle" type="button">导出备份</button>
+                    <button id="importBackupBtn" class="tool-btn subtle" type="button">导入备份</button>
+                    <input type="file" id="backupFileInput" accept=".json,application/json" hidden>
+                </div>
+            </div>
+
+            <div class="main-layout">
+                <main class="content-area">
+                    <div id="tab-search" class="tab-content">
+                        <div id="searchResults" class="song-list"></div>
+                    </div>
+                    <div id="tab-favorites" class="tab-content active">
+                        <div id="favSongs" class="song-list"></div>
+                    </div>
+                    <div id="tab-downloads" class="tab-content">
+                        <div id="downloadSongs" class="song-list"></div>
+                    </div>
+                    <div id="tab-playlists" class="tab-content">
+                        <div class="pl-tab-header">
+                            <button id="addPlaylistBtn" class="btn-primary" type="button">+ 新建歌单</button>
+                        </div>
+                        <div class="playlists-grid" id="playlistsGrid"></div>
+                    </div>
+                    <div id="tab-playlist-detail" class="tab-content">
+                        <div class="playlist-detail-header">
+                            <h2 id="playlistDetailName"></h2>
+                            <span id="playlistDetailCount" class="song-count"></span>
+                        </div>
+                        <div id="playlistDetailSongs" class="song-list"></div>
+                    </div>
+                </main>
+            </div>
+        </aside>
+
         <div id="playlistModal" class="modal-overlay" style="display:none">
             <div class="modal-box">
                 <h3>新建歌单</h3>
                 <input type="text" id="playlistNameInput" placeholder="输入歌单名称..." autocomplete="off">
                 <div class="modal-actions">
-                    <button id="cancelPlaylistBtn" class="btn-secondary">取消</button>
-                    <button id="confirmPlaylistBtn" class="btn-primary">创建</button>
+                    <button id="cancelPlaylistBtn" class="btn-secondary" type="button">取消</button>
+                    <button id="confirmPlaylistBtn" class="btn-primary" type="button">创建</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 底部播放器 -->
-    <div id="player" class="player-bar" style="display:none">
-        <div class="player-info">
-            <span id="playerTitle" class="player-title">歌曲名</span>
-            <span id="playerArtist" class="player-artist">歌手</span>
+    <div id="player" class="player-bar">
+        <div class="player-progress player-progress-top">
+            <span id="currentTime" class="time">00:00</span>
+            <input type="range" id="progressBar" class="progress-bar" value="0" min="0" max="100" aria-label="播放进度">
+            <span id="totalTime" class="time">00:00</span>
         </div>
-        <div class="equalizer" id="equalizer">
+        <div class="player-info">
+            <span id="playerTitle" class="player-title">未选择歌曲</span>
+            <span id="playerArtist" class="player-artist">打开音乐库选择播放</span>
+        </div>
+        <div class="player-actions-left" aria-label="快捷操作">
+            <button id="favoriteCurrentBtn" class="icon-btn" type="button" title="喜欢当前歌曲" aria-label="喜欢当前歌曲">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 018-3.1 4.6 4.6 0 018 3.1z"/></svg>
+            </button>
+            <button id="commentCurrentBtn" class="icon-btn" type="button" title="评论" aria-label="评论">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H8l-3 3v-13z"/></svg>
+            </button>
+        </div>
+        <div class="equalizer" id="equalizer" aria-hidden="true">
             <span></span><span></span><span></span><span></span>
         </div>
         <div class="player-controls">
-            <button id="prevBtn" class="ctrl-btn" title="上一首"></button>
-            <button id="playBtn" class="ctrl-btn play-btn" title="播放/暂停"></button>
-            <button id="nextBtn" class="ctrl-btn" title="下一首"></button>
+            <button id="playModeBtn" class="ctrl-btn" type="button" title="播放模式"></button>
+            <button id="prevBtn" class="ctrl-btn" type="button" title="上一首"></button>
+            <button id="playBtn" class="ctrl-btn play-btn" type="button" title="播放/暂停"></button>
+            <button id="nextBtn" class="ctrl-btn" type="button" title="下一首"></button>
+            <button id="queueBtn" class="ctrl-btn" type="button" title="播放列表" aria-label="打开音乐库">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h12M4 12h12M4 17h8M19 15l2 2-2 2"/></svg>
+            </button>
         </div>
-        <div class="player-progress">
-            <span id="currentTime" class="time">00:00</span>
-            <input type="range" id="progressBar" class="progress-bar" value="0" min="0" max="100">
-            <span id="totalTime" class="time">00:00</span>
-        </div>
-        <button id="playModeBtn" class="mode-btn" title="播放模式">🔁</button>
         <div class="player-volume">
-            <span>🔊</span>
-            <input type="range" id="volumeBar" class="volume-bar" value="80" min="0" max="100">
+            <span class="quality-badge">SQ</span>
+            <button id="lyricToggleBtn" class="icon-btn" type="button" title="歌词" aria-label="歌词">词</button>
+            <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zM16 9.5a4 4 0 010 5"/></svg>
+            <input type="range" id="volumeBar" class="volume-bar" value="80" min="0" max="100" aria-label="音量">
+            <button id="moreBtn" class="icon-btn" type="button" title="更多" aria-label="更多">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
+            </button>
         </div>
     </div>
 
-    <!-- 隐藏的 audio 元素 -->
-    <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplaytube"></audio>
+    <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplayback"></audio>
 
     <script src="/static/app.js"></script>
 </body>
