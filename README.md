@@ -2,7 +2,7 @@
 
 一个基于 Flask 的个人音乐播放器，支持在线搜索、试听、下载、收藏和歌单管理。
 
-> 当前主搜索源为 [music.itzo.cn](https://music.itzo.cn/)。
+> 当前主搜索源为 [qjjlb.quanjian.com.cn/musicdl/](http://qjjlb.quanjian.com.cn/musicdl/)。
 
 ## 功能
 

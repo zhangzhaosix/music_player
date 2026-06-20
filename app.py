@@ -17,7 +17,8 @@ MUSIC_DIR = os.path.join(BASE_DIR, '音乐合集')
 FAVORITES_FILE = os.path.join(BASE_DIR, 'favorites.json')
 PLAYLISTS_FILE = os.path.join(BASE_DIR, 'playlists.json')
 QEECC_BASE = 'https://www.qeecc.com'
-ITZO_BASE = 'https://music.itzo.cn'
+QJJLB_BASE = 'http://qjjlb.quanjian.com.cn/musicdl/'
+QJJLB_ORIGIN = 'http://qjjlb.quanjian.com.cn'
 KUWO_LYRIC_URL = 'http://m.kuwo.cn/newh5/singles/songinfoandlrc?musicId={}'
 
 # 请求头，模拟浏览器访问
@@ -37,7 +38,7 @@ HEADERS = {
 
 # 全局 session 用于 qeecc 请求（维持 cookies）
 _qeecc_session = None
-_itzo_session = None
+_qjjlb_session = None
 _search_cache = {}
 _search_cache_ttl = 300
 
@@ -56,22 +57,22 @@ def get_qeecc_session():
     return _qeecc_session
 
 
-def get_itzo_session():
-    """获取带 cookies 的 itzo requests Session"""
-    global _itzo_session
-    if _itzo_session is None:
-        _itzo_session = requests.Session()
-        _itzo_session.headers.update({
+def get_qjjlb_session():
+    """获取带 cookies 的 qjjlb requests Session"""
+    global _qjjlb_session
+    if _qjjlb_session is None:
+        _qjjlb_session = requests.Session()
+        _qjjlb_session.headers.update({
             'User-Agent': HEADERS['User-Agent'],
-            'Referer': ITZO_BASE + '/',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Referer': QJJLB_BASE,
+            'Origin': QJJLB_ORIGIN,
+            'Accept': 'application/json, text/plain, */*',
         })
         try:
-            _itzo_session.get(ITZO_BASE, timeout=10)
+            _qjjlb_session.get(QJJLB_BASE, timeout=10)
         except Exception:
             pass
-    return _itzo_session
+    return _qjjlb_session
 
 
 def get_cached_search_results(keyword):
@@ -91,7 +92,7 @@ def store_search_results(keyword, results):
     }
 
 
-def parse_itzo_lyrics(lrc_text):
+def parse_lrc_text(lrc_text):
     lyrics = []
     if not lrc_text:
         return lyrics
@@ -122,98 +123,212 @@ def parse_itzo_lyrics(lrc_text):
     return lyrics
 
 
-def normalize_itzo_song(item):
+def build_qjjlb_ref(provider, **params):
+    query = urllib.parse.urlencode({k: v for k, v in params.items() if v not in (None, '')})
+    return f'qjjlb://{provider}' + (f'?{query}' if query else '')
+
+
+def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_url='', lyrics_text=''):
     if not isinstance(item, dict):
         return None
 
-    title = str(item.get('title', '')).strip() or '未知歌曲'
-    artist = str(item.get('author', '')).strip() or '未知歌手'
-    source_url = str(item.get('link', '')).strip()
-    mp3_url = str(item.get('url', '')).strip()
-    cover_url = str(item.get('pic', '')).strip()
-    song_type = str(item.get('type', '')).strip() or 'netease'
+    title = str(item.get('title', '') or item.get('song', '') or item.get('name', '')).strip() or '未知歌曲'
+    artist = str(item.get('author', '') or item.get('singer', '') or item.get('artist', '') or item.get('singer_name', '')).strip() or '未知歌手'
+    url = str(url or item.get('url', '') or '').strip()
+    source_url = str(source_url or item.get('link', '') or '').strip()
+    mp3_url = str(mp3_url or item.get('music_url', '') or item.get('url', '') or '').strip()
+    cover_url = str(cover_url or item.get('cover', '') or item.get('pic', '') or '').strip()
 
     if mp3_url.startswith('//'):
         mp3_url = 'https:' + mp3_url
+    if url.startswith('//'):
+        url = 'https:' + url
     if source_url.startswith('//'):
         source_url = 'https:' + source_url
     if cover_url.startswith('//'):
         cover_url = 'https:' + cover_url
 
+    canonical = url or source_url or mp3_url or f'{provider}:{title}:{artist}'
+
     return {
-        'id': source_url or f'itzo:{song_type}:{item.get("songid", "")}',
+        'id': str(uuid.uuid5(uuid.NAMESPACE_URL, canonical)),
         'title': title,
         'artist': artist,
-        'url': source_url or mp3_url,
+        'url': url or source_url or mp3_url,
         'mp3_url': mp3_url,
-        'source_url': source_url or mp3_url,
-        'source': 'itzo',
+        'source_url': source_url or url or mp3_url or QJJLB_BASE,
+        'source': 'qjjlb',
         'cover_url': cover_url,
-        'type': song_type,
-        'songid': item.get('songid', ''),
-        'lyrics': parse_itzo_lyrics(item.get('lrc', '')),
+        'type': provider,
+        'songid': item.get('songid', item.get('id', '')),
+        'lyrics': parse_lrc_text(lyrics_text or item.get('lrc', '') or item.get('lyric', '') or ''),
     }
 
 
-def fetch_itzo_results(input_value, filter_value='name', music_type='netease', page=1):
-    sess = get_itzo_session()
+def fetch_qjjlb_json(url, params=None, timeout=20):
+    sess = get_qjjlb_session()
     try:
-        resp = sess.post(
-            ITZO_BASE + '/',
-            data={
-                'input': input_value,
-                'filter': filter_value,
-                'type': music_type,
-                'page': page,
-            },
-            timeout=20,
-        )
+        resp = sess.get(url, params=params, timeout=timeout)
         resp.raise_for_status()
-        data = resp.json()
+        return resp.json(), None
     except (requests.RequestException, json.JSONDecodeError, ValueError) as e:
-        return None, f'itzo 请求失败: {str(e)}'
+        return None, f'qjjlb 请求失败: {str(e)}'
 
+
+def fetch_qjjlb_text(url, params=None, timeout=20):
+    sess = get_qjjlb_session()
+    try:
+        resp = sess.get(url, params=params, timeout=timeout)
+        resp.raise_for_status()
+        return resp.text, None
+    except requests.RequestException as e:
+        return None, f'qjjlb 请求失败: {str(e)}'
+
+
+def search_qjjlb_migu(keyword, limit=10):
+    data, err = fetch_qjjlb_json(
+        'https://api.xcvts.cn/api/music/migu',
+        params={'gm': keyword, 'n': '', 'num': limit, 'type': 'json'},
+    )
+    if err:
+        return None, err
     if not isinstance(data, dict):
-        return None, 'itzo 返回了无效数据'
-
+        return None, 'qjjlb migu 返回了无效数据'
     if int(data.get('code', 0) or 0) != 200:
-        return None, str(data.get('error') or 'itzo 搜索失败')
+        return None, str(data.get('error') or 'qjjlb migu 搜索失败')
 
-    results = data.get('data', [])
-    if not isinstance(results, list):
-        return [], None
-
+    results = []
+    for item in data.get('data', []) or []:
+        if not isinstance(item, dict):
+            continue
+        n = item.get('n')
+        url = build_qjjlb_ref('migu', kw=keyword, n=n, num=limit)
+        song = make_qjjlb_song('migu', item, url=url, source_url=QJJLB_BASE)
+        if song:
+            results.append(song)
     return results, None
 
 
-def search_itzo(keyword, limit=30):
+def search_qjjlb_netease(keyword, page=1, limit=10):
+    data, err = fetch_qjjlb_json(
+        'https://api.vkeys.cn/v2/music/netease',
+        params={'word': keyword, 'page': page, 'num': limit},
+    )
+    if err:
+        return None, err
+    if not isinstance(data, dict):
+        return None, 'qjjlb 网易云返回了无效数据'
+    if int(data.get('code', 0) or 0) != 200:
+        return None, str(data.get('error') or 'qjjlb 网易云搜索失败')
+
+    results = []
+    for item in data.get('data', []) or []:
+        if not isinstance(item, dict):
+            continue
+        url = build_qjjlb_ref('netease', id=item.get('id', ''))
+        song = make_qjjlb_song('netease', item, url=url, source_url=QJJLB_BASE, cover_url=item.get('cover', ''))
+        if song:
+            results.append(song)
+    return results, None
+
+
+def search_qjjlb_qq(keyword, limit=10):
+    data, err = fetch_qjjlb_json(
+        'https://tang.api.s01s.cn/music_open_api.php',
+        params={'msg': keyword, 'type': 'json'},
+    )
+    if err:
+        return None, err
+
+    if isinstance(data, dict):
+        items = data.get('data', [])
+    elif isinstance(data, list):
+        items = data
+    else:
+        items = []
+
+    results = []
+    for item in (items or [])[:limit]:
+        if not isinstance(item, dict):
+            continue
+        mid = item.get('song_mid', '')
+        if not mid:
+            continue
+        url = build_qjjlb_ref('qq', msg=keyword, mid=mid)
+        song = make_qjjlb_song('qq', item, url=url, source_url=QJJLB_BASE)
+        if song:
+            results.append(song)
+    return results, None
+
+
+def search_qjjlb_kuwo(keyword, limit=10):
+    data, err = fetch_qjjlb_json(
+        'https://kw-api.cenguigui.cn/',
+        params={'name': keyword, 'page': 1, 'limit': limit},
+    )
+    if err:
+        return None, err
+    if not isinstance(data, dict):
+        return None, 'qjjlb 酷我返回了无效数据'
+    if int(data.get('code', 0) or 0) != 200:
+        return None, str(data.get('error') or 'qjjlb 酷我搜索失败')
+
+    results = []
+    for item in data.get('data', []) or []:
+        if not isinstance(item, dict):
+            continue
+        url = str(item.get('url', '')).strip() or build_qjjlb_ref('kuwo', id=item.get('rid', ''))
+        mp3_url = str(item.get('url', '')).strip()
+        song = make_qjjlb_song(
+            'kuwo',
+            item,
+            url=url,
+            source_url=QJJLB_BASE,
+            mp3_url=mp3_url,
+            cover_url=item.get('pic', ''),
+            lyrics_text=item.get('lrc', ''),
+        )
+        if song:
+            results.append(song)
+    return results, None
+
+
+def search_qjjlb(keyword, limit=30):
     cached_results = get_cached_search_results(keyword)
     if cached_results is not None:
         return cached_results
 
     results = []
     seen_keys = set()
-    for page in range(1, 4):
-        page_results, err = fetch_itzo_results(keyword, filter_value='name', music_type='netease', page=page)
+    source_limit = max(1, min(10, limit))
+    source_fetchers = [
+        lambda: search_qjjlb_migu(keyword, source_limit),
+        lambda: search_qjjlb_netease(keyword, 1, source_limit),
+        lambda: search_qjjlb_qq(keyword, source_limit),
+        lambda: search_qjjlb_kuwo(keyword, source_limit),
+    ]
+
+    for fetcher in source_fetchers:
+        page_results, err = fetcher()
         if err:
             if results:
-                break
+                continue
             return {'error': err}, 502
         if not page_results:
-            break
+            continue
 
-        for item in page_results:
-            song = normalize_itzo_song(item)
-            if not song:
+        for song in page_results:
+            if not isinstance(song, dict):
                 continue
-            if song['id'] in seen_keys:
+            song_id = song.get('id')
+            if song_id in seen_keys:
                 continue
-            seen_keys.add(song['id'])
+            seen_keys.add(song_id)
             results.append(song)
             if len(results) >= limit:
                 break
 
-        if len(results) >= limit or len(page_results) < 10:
+        if len(results) >= limit:
             break
 
     if results:
@@ -575,6 +690,161 @@ def search_qeecc(keyword):
 
     return []
 
+def resolve_qjjlb_song_info(song_url):
+    parsed = urllib.parse.urlparse(str(song_url).strip())
+    if (parsed.scheme or '').lower() != 'qjjlb':
+        return None, None
+
+    provider = (parsed.netloc or parsed.path.lstrip('/')).strip().lower()
+    params = {key: values[0] for key, values in urllib.parse.parse_qs(parsed.query).items()}
+
+    if not provider:
+        return None, '无效的 qjjlb 链接'
+
+    if provider == 'migu':
+        keyword = params.get('kw', '')
+        limit = int(params.get('num', 10) or 10)
+        page_data, err = fetch_qjjlb_json(
+            'https://api.xcvts.cn/api/music/migu',
+            params={'gm': keyword, 'n': params.get('n', ''), 'num': limit, 'type': 'json'},
+        )
+        if err:
+            return None, err
+        if not isinstance(page_data, dict):
+            return None, 'qjjlb migu 返回了无效数据'
+
+        payload = page_data.get('data')
+        if isinstance(payload, list):
+            payload = payload[0] if payload else {}
+        if not isinstance(payload, dict):
+            payload = page_data
+
+        lrc_url = str(payload.get('lrc_url', '') or '').strip()
+        lrc_text = ''
+        if lrc_url:
+            lrc_text, _ = fetch_qjjlb_text(lrc_url)
+
+        info = make_qjjlb_song(
+            'migu',
+            payload,
+            url=str(song_url).strip(),
+            source_url=payload.get('link', QJJLB_BASE),
+            mp3_url=payload.get('music_url', '') or payload.get('url', ''),
+            cover_url=payload.get('cover', '') or payload.get('pic', ''),
+            lyrics_text=lrc_text or payload.get('lrc', ''),
+        )
+        return info, None
+
+    if provider == 'netease':
+        song_id = params.get('id', '').strip()
+        if not song_id:
+            return None, 'qjjlb 网易云缺少歌曲 ID'
+
+        detail_data, err = fetch_qjjlb_json(
+            'https://api.qijieya.cn/meting/',
+            params={'type': 'song', 'id': song_id},
+        )
+        if err:
+            return None, err
+        if not isinstance(detail_data, list) or not detail_data:
+            return None, 'qjjlb 网易云返回了无效数据'
+
+        detail = detail_data[0] if isinstance(detail_data[0], dict) else {}
+        lyric_text = ''
+        lyric_data, lyric_err = fetch_qjjlb_json(
+            'https://api.vkeys.cn/v2/music/netease/lyric',
+            params={'id': song_id},
+        )
+        if not lyric_err and isinstance(lyric_data, dict):
+            lyric_text = str((lyric_data.get('data') or {}).get('lrc', '') or '')
+
+        info = {
+            'title': detail.get('name', '未知歌曲') or '未知歌曲',
+            'artist': detail.get('artist', '未知歌手') or '未知歌手',
+            'mp3_url': detail.get('url', '') or '',
+            'source_url': detail.get('song_url') or f'https://music.163.com/#/song?id={song_id}',
+            'cover_url': detail.get('pic', '') or detail.get('cover', '') or '',
+            'lyric_id': song_id,
+            'lyrics': parse_lrc_text(lyric_text),
+        }
+        return info, None
+
+    if provider == 'qq':
+        mid = params.get('mid', '').strip()
+        if not mid:
+            return None, 'qjjlb QQ 缺少歌曲 mid'
+
+        detail_data, err = fetch_qjjlb_json(
+            'https://tang.api.s01s.cn/music_open_api.php',
+            params={'msg': params.get('msg', ''), 'type': 'json', 'mid': mid},
+        )
+        if err:
+            return None, err
+        if not isinstance(detail_data, dict):
+            return None, 'qjjlb QQ 返回了无效数据'
+
+        def pick_best_play_url(data):
+            if data.get('song_play_url_sq'):
+                return data.get('song_play_url_sq'), 'LOSSLESS'
+            if data.get('song_play_url_pq'):
+                return data.get('song_play_url_pq'), 'LOSSLESS'
+            if data.get('song_play_url_accom'):
+                return data.get('song_play_url_accom'), 'HQ'
+            if data.get('song_play_url_hq'):
+                return data.get('song_play_url_hq'), 'HQ'
+            if data.get('song_play_url_standard'):
+                return data.get('song_play_url_standard'), 'STD'
+            if data.get('song_play_url_fq'):
+                return data.get('song_play_url_fq'), 'LOW'
+            return data.get('song_play_url', ''), ''
+
+        mp3_url, quality_label = pick_best_play_url(detail_data)
+        lyric_text = str(detail_data.get('song_lyric', '') or detail_data.get('lyric', '') or '')
+        info = {
+            'title': detail_data.get('song_title') or detail_data.get('song_name') or '未知歌曲',
+            'artist': detail_data.get('singer_name') or '未知歌手',
+            'mp3_url': mp3_url or '',
+            'source_url': detail_data.get('song_h5_url') or f'https://y.qq.com/n/ryqq/songDetail/{mid}',
+            'cover_url': detail_data.get('album_pic') or detail_data.get('singer_pic') or '',
+            'lyric_id': mid,
+            'lyrics': parse_lrc_text(lyric_text),
+        }
+        if quality_label:
+            info['quality_label'] = quality_label
+        return info, None
+
+    if provider == 'kuwo':
+        song_id = params.get('id', '').strip()
+        if not song_id:
+            return None, 'qjjlb 酷我缺少歌曲 ID'
+
+        detail_data, err = fetch_qjjlb_json(
+            'https://kw-api.cenguigui.cn/',
+            params={'id': song_id, 'type': 'song', 'level': 'zp', 'format': 'json'},
+        )
+        if err:
+            return None, err
+        if not isinstance(detail_data, dict):
+            return None, 'qjjlb 酷我返回了无效数据'
+
+        payload = detail_data.get('data') if isinstance(detail_data.get('data'), dict) else detail_data
+        if not isinstance(payload, dict):
+            return None, 'qjjlb 酷我返回了无效数据'
+
+        info = {
+            'title': payload.get('name', '未知歌曲') or '未知歌曲',
+            'artist': payload.get('artist', '未知歌手') or '未知歌手',
+            'mp3_url': payload.get('url', '') or '',
+            'source_url': payload.get('song_url') or payload.get('url', '') or f'https://www.kuwo.cn/play_detail/{song_id}',
+            'cover_url': payload.get('pic', '') or '',
+            'lyric_id': song_id,
+            'lyrics': parse_lrc_text(payload.get('lyric', '') or ''),
+        }
+        return info, None
+
+    return None, f'不支持的 qjjlb 来源: {provider}'
+
+
 def extract_mp3_url(song_url):
     """从歌曲链接中获取可播放直链"""
     info, err = get_song_info(song_url)
@@ -610,24 +880,16 @@ def get_song_info(song_url):
             'lyrics': [],
         }, None
 
-    itzo_results, itzo_err = fetch_itzo_results(normalized_url, filter_value='url', music_type='_', page=1)
-    if itzo_results:
-        info = normalize_itzo_song(itzo_results[0])
-        if info:
-            return {
-                'title': info.get('title', '未知歌曲') or '未知歌曲',
-                'artist': info.get('artist', '未知歌手') or '未知歌手',
-                'mp3_url': info.get('mp3_url', '') or '',
-                'source_url': info.get('source_url', normalized_url) or normalized_url,
-                'cover_url': info.get('cover_url', '') or '',
-                'lyric_id': '',
-                'lyrics': info.get('lyrics', []) or [],
-            }, None
+    qjjlb_info, qjjlb_err = resolve_qjjlb_song_info(normalized_url)
+    if qjjlb_info:
+        return qjjlb_info, None
+    if qjjlb_err and normalized_url.startswith('qjjlb://'):
+        return {'error': qjjlb_err}, qjjlb_err
 
     song_id = extract_song_id(normalized_url)
     if not song_id:
-        if itzo_err:
-            return {'error': itzo_err}, itzo_err
+        if qjjlb_err:
+            return {'error': qjjlb_err}, qjjlb_err
         return {'error': '无法提取歌曲 ID'}, '无法提取歌曲 ID'
 
     play_data, err = get_qeecc_play_data(song_id)
@@ -676,10 +938,6 @@ def get_song_info(song_url):
     }, err
 
 
-
-
-# ─── 路由 ──────────────────────────────────────────────────
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -687,12 +945,12 @@ def index():
 
 @app.route('/api/search')
 def api_search():
-    """搜索 itzo 歌曲"""
+    """搜索 qjjlb 歌曲"""
     q = request.args.get('q', '').strip()
     if not q:
         return jsonify({'error': '请输入搜索关键词'}), 400
 
-    results = search_itzo(q)
+    results = search_qjjlb(q)
     if isinstance(results, tuple):
         return jsonify(results[0]), results[1]
 

@@ -829,6 +829,16 @@ function resolvePlayableSong(songId) {
         };
     }
 
+    if (/^qjjlb:\/\//i.test(songId)) {
+        return {
+            id: songId,
+            title: '未知歌曲',
+            artist: '未知歌手',
+            url: songId,
+            downloaded: false,
+        };
+    }
+
     if (/^[A-Za-z0-9_-]+$/.test(songId)) {
         return {
             id: songId,
