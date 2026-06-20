@@ -757,6 +757,7 @@ async function deleteLocalSongSilently(songId) {
 async function playSong(songId) {
     // 在当前所有歌曲列表中找这个歌曲
     let song = resolvePlayableSong(songId);
+    syncQueueForSong(songId);
     if (!song) return toast('找不到歌曲信息', true);
 
     // 如果点击的是同一首歌，切换播放/暂停
@@ -863,6 +864,39 @@ function resolvePlayableSong(songId) {
     }
 
     return null;
+}
+
+function syncQueueForSong(songId) {
+    let queue = null;
+
+    if (state.currentTab === 'playlist-detail' && state.currentPlaylistDetailId) {
+        const pl = state.playlists.find(p => p.id === state.currentPlaylistDetailId);
+        if (pl?.songs?.length) {
+            queue = pl.songs.map(id => resolvePlayableSong(id)).filter(Boolean);
+        }
+    } else if (state.currentTab === 'search' && state.searchResults.length) {
+        queue = state.searchResults.slice();
+    } else if (state.currentTab === 'favorites' && state.favorites.length) {
+        queue = state.favorites.slice();
+    } else if (state.currentTab === 'downloads' && state.localMusic.length) {
+        queue = state.localMusic.slice();
+    }
+
+    if (!queue || !queue.length) {
+        const existingIndex = state.queue.findIndex(song => song.id === songId);
+        if (existingIndex >= 0) {
+            state.queueIndex = existingIndex;
+            return true;
+        }
+        return false;
+    }
+
+    const queueIndex = queue.findIndex(song => song.id === songId);
+    if (queueIndex < 0) return false;
+
+    state.queue = queue;
+    state.queueIndex = queueIndex;
+    return true;
 }
 
 async function getProxyUrl(songUrl) {
