@@ -304,12 +304,17 @@ function syncBatchToolbar() {
     const visibleSongIds = getVisibleSongIds();
     const hasVisibleSongs = visibleSongIds.length > 0;
     const visible = allowBatch && (count > 0 || hasVisibleSongs);
+    const isDownloadsTab = state.currentTab === 'downloads';
 
     batchToolbar.classList.toggle('hidden', !visible);
     batchCount.textContent = `已选择 ${count} 首`;
     batchCancelBtn.disabled = count === 0;
+    batchFavoriteBtn.hidden = state.currentTab === 'favorites' || isDownloadsTab;
     batchFavoriteBtn.disabled = count === 0;
     batchPlaylistBtn.disabled = count === 0;
+    batchDownloadBtn.hidden = false;
+    batchDownloadBtn.textContent = isDownloadsTab ? '批量删除' : '本地下载';
+    batchDownloadBtn.classList.toggle('danger', isDownloadsTab);
     batchDownloadBtn.disabled = count === 0;
     batchSelectAllBtn.disabled = !allowBatch || !hasVisibleSongs;
 }
@@ -444,7 +449,15 @@ searchInput.addEventListener('keydown', e => {
 if (batchCancelBtn) batchCancelBtn.addEventListener('click', clearBatchSelection);
 if (batchFavoriteBtn) batchFavoriteBtn.addEventListener('click', batchFavoriteSongs);
 if (batchPlaylistBtn) batchPlaylistBtn.addEventListener('click', showBatchAddToPlaylist);
-if (batchDownloadBtn) batchDownloadBtn.addEventListener('click', batchDownloadLocalSongs);
+if (batchDownloadBtn) {
+    batchDownloadBtn.addEventListener('click', () => {
+        if (state.currentTab === 'downloads') {
+            batchDeleteLocalSongs();
+        } else {
+            batchDownloadLocalSongs();
+        }
+    });
+}
 if (batchSelectAllBtn) batchSelectAllBtn.addEventListener('click', selectAllCurrentPage);
 if (exportBackupBtn) exportBackupBtn.addEventListener('click', exportBackup);
 if (importBackupBtn) importBackupBtn.addEventListener('click', openBackupPicker);
@@ -1518,6 +1531,56 @@ async function batchDownloadLocalSongs() {
         }
     } catch (err) {
         toast(err.message || '本地下载失败', true);
+    }
+}
+
+async function batchDeleteLocalSongs() {
+    const seen = new Set();
+    const songs = Array.from(state.selectedSongIds)
+        .map(id => findSongInState(id))
+        .filter(song => {
+            if (!song || !song.downloaded || seen.has(song.id)) return false;
+            seen.add(song.id);
+            return true;
+        });
+
+    if (!songs.length) return toast('选中的歌曲都不在本地', true);
+    if (!confirm(`确定删除选中的 ${songs.length} 首本地歌曲吗？\n删除后需要重新下载才能播放。`)) {
+        return;
+    }
+
+    let deleted = 0;
+    let failed = 0;
+    try {
+        for (const song of songs) {
+            try {
+                const ok = await deleteLocalSongSilently(song.id);
+                if (ok) {
+                    deleted++;
+                    syncSongRemovedFromCaches(song.id);
+                } else {
+                    failed++;
+                }
+            } catch {
+                failed++;
+            }
+        }
+
+        await Promise.all([loadFavorites(), loadDownloads(), loadPlaylists()]);
+        clearBatchSelection();
+        if (state.currentTab !== 'downloads') {
+            refreshCurrentTab();
+        }
+
+        if (deleted && failed) {
+            toast(`已删除本地 ${deleted} 首，${failed} 首失败`, true);
+        } else if (deleted) {
+            toast(`已删除本地 ${deleted} 首`);
+        } else {
+            toast('批量删除失败', true);
+        }
+    } catch (err) {
+        toast(err.message || '批量删除失败', true);
     }
 }
 

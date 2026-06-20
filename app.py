@@ -180,8 +180,20 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
 def fetch_qjjlb_json(url, params=None, timeout=20):
     sess = get_qjjlb_session()
     try:
-        resp = sess.get(url, params=params, timeout=timeout)
-        resp.raise_for_status()
+        last_err = None
+        resp = None
+        for attempt in range(2):
+            try:
+                resp = sess.get(url, params=params, timeout=timeout)
+                resp.raise_for_status()
+                break
+            except requests.RequestException as e:
+                last_err = e
+                if attempt == 1:
+                    raise
+                time.sleep(0.2)
+        if resp is None:
+            raise last_err
         return resp.json(), None
     except (requests.RequestException, json.JSONDecodeError, ValueError) as e:
         return None, f'qjjlb 请求失败: {str(e)}'
@@ -190,8 +202,20 @@ def fetch_qjjlb_json(url, params=None, timeout=20):
 def fetch_qjjlb_text(url, params=None, timeout=20):
     sess = get_qjjlb_session()
     try:
-        resp = sess.get(url, params=params, timeout=timeout)
-        resp.raise_for_status()
+        resp = None
+        last_err = None
+        for attempt in range(2):
+            try:
+                resp = sess.get(url, params=params, timeout=timeout)
+                resp.raise_for_status()
+                break
+            except requests.RequestException as e:
+                last_err = e
+                if attempt == 1:
+                    raise
+                time.sleep(0.2)
+        if resp is None:
+            raise last_err
         return resp.text, None
     except requests.RequestException as e:
         return None, f'qjjlb 请求失败: {str(e)}'
@@ -312,6 +336,7 @@ def search_qjjlb(keyword, limit=30):
 
     results = []
     seen_keys = set()
+    last_error = None
     source_limit = max(1, min(10, limit))
     source_fetchers = [
         lambda: search_qjjlb_qq(keyword, source_limit),
@@ -322,9 +347,8 @@ def search_qjjlb(keyword, limit=30):
     for fetcher in source_fetchers:
         page_results, err = fetcher()
         if err:
-            if results:
-                continue
-            return {'error': err}, 502
+            last_error = err
+            continue
         if not page_results:
             continue
 
@@ -345,6 +369,9 @@ def search_qjjlb(keyword, limit=30):
     if results:
         store_search_results(keyword, results)
         return results[:limit]
+
+    if last_error:
+        return {'error': last_error}, 502
 
     return []
 
