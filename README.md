@@ -1,8 +1,8 @@
 # 音乐播放器
 
-一个基于 Flask 的个人音乐播放器，支持在线搜索、试听、下载、收藏和歌单管理。
+一个基于 Flask 的个人音乐网页，支持在线搜索、试听、下载、收藏和歌单管理。
 
-> 当前主搜索源为 [qjjlb.quanjian.com.cn/musicdl/](http://qjjlb.quanjian.com.cn/musicdl/)。
+当前主搜索源为 [qjjlb.quanjian.com.cn/musicdl/](http://qjjlb.quanjian.com.cn/musicdl/)。
 
 ## 功能
 
@@ -12,11 +12,12 @@
 - 收藏歌曲
 - 管理歌单
 - 记忆音量与播放进度
+- 批量选中歌曲后可一键本地下载，已下载歌曲会自动跳过
 
 ## 技术栈
 
 - 后端：Python + Flask
-- 网络请求：requests + BeautifulSoup4
+- 网络请求：Requests + BeautifulSoup4
 - 前端：原生 HTML / CSS / JavaScript
 - 数据存储：`favorites.json` / `playlists.json`
 

@@ -555,19 +555,25 @@ svg {
 .page-tools {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     margin-bottom: 16px;
 }
 
 .batch-toolbar {
     display: flex;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 6px;
+    flex-wrap: nowrap;
     padding: 10px 12px;
     border: 1px solid var(--border);
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.045);
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.batch-toolbar::-webkit-scrollbar {
+    display: none;
 }
 
 .batch-toolbar.hidden {
@@ -579,6 +585,7 @@ svg {
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .backup-toolbar {
@@ -589,10 +596,12 @@ svg {
 }
 
 .tool-btn {
-    padding: 0 13px;
+    padding: 0 11px;
+    min-height: 34px;
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 600;
+    white-space: nowrap;
 }
 
 .tool-btn.subtle {

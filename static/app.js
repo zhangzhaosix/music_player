@@ -40,7 +40,7 @@ const batchCount = $('batchCount');
 const batchCancelBtn = $('batchCancelBtn');
 const batchFavoriteBtn = $('batchFavoriteBtn');
 const batchPlaylistBtn = $('batchPlaylistBtn');
-const batchDeleteBtn = $('batchDeleteBtn');
+const batchDownloadBtn = $('batchDeleteBtn');
 const batchSelectAllBtn = $('batchSelectAllBtn');
 const exportBackupBtn = $('exportBackupBtn');
 const importBackupBtn = $('importBackupBtn');
@@ -310,7 +310,7 @@ function syncBatchToolbar() {
     batchCancelBtn.disabled = count === 0;
     batchFavoriteBtn.disabled = count === 0;
     batchPlaylistBtn.disabled = count === 0;
-    batchDeleteBtn.disabled = count === 0;
+    batchDownloadBtn.disabled = count === 0;
     batchSelectAllBtn.disabled = !allowBatch || !hasVisibleSongs;
 }
 
@@ -444,7 +444,7 @@ searchInput.addEventListener('keydown', e => {
 if (batchCancelBtn) batchCancelBtn.addEventListener('click', clearBatchSelection);
 if (batchFavoriteBtn) batchFavoriteBtn.addEventListener('click', batchFavoriteSongs);
 if (batchPlaylistBtn) batchPlaylistBtn.addEventListener('click', showBatchAddToPlaylist);
-if (batchDeleteBtn) batchDeleteBtn.addEventListener('click', batchDeleteLocalSongs);
+if (batchDownloadBtn) batchDownloadBtn.addEventListener('click', batchDownloadLocalSongs);
 if (batchSelectAllBtn) batchSelectAllBtn.addEventListener('click', selectAllCurrentPage);
 if (exportBackupBtn) exportBackupBtn.addEventListener('click', exportBackup);
 if (importBackupBtn) importBackupBtn.addEventListener('click', openBackupPicker);
@@ -1172,15 +1172,25 @@ function updatePlayButtons() {
 
 // ─── 下载 ───────────────────────────────────────────────
 
-async function downloadSong(songId) {
+async function downloadSong(songId, options = {}) {
+    const quiet = options.quiet === true;
     const song = findSongInState(songId);
-    if (!song) return toast('找不到歌曲', true);
-    if (song.downloaded) return toast('已下载过了');
+    if (!song) {
+        if (!quiet) toast('找不到歌曲', true);
+        return 'missing';
+    }
+    if (song.downloaded) {
+        if (!quiet) toast('已下载过了');
+        return 'skipped';
+    }
 
     const downloadUrl = song.mp3_url || song.url;
-    if (!downloadUrl) return toast('没有下载链接', true);
+    if (!downloadUrl) {
+        if (!quiet) toast('没有下载链接', true);
+        return 'failed';
+    }
 
-    toast('开始下载...');
+    if (!quiet) toast('开始下载...');
     try {
         const resp = await fetch('/api/download', {
             method: 'POST',
@@ -1192,16 +1202,24 @@ async function downloadSong(songId) {
         });
         const data = await resp.json();
         if (data.success) {
-            toast('下载完成 ✅');
+            if (!quiet) toast('下载完成 ✅');
             song.downloaded = true;
             song.filename = data.filename;
-            // 刷新页面状态
-            refreshCurrentTab();
+            if (!quiet) {
+                await loadDownloads();
+                syncCachedSongFlags();
+                if (state.currentTab !== 'downloads') {
+                    refreshCurrentTab();
+                }
+            }
+            return 'downloaded';
         } else {
-            toast(data.error || '下载失败', true);
+            if (!quiet) toast(data.error || '下载失败', true);
+            return 'failed';
         }
     } catch {
-        toast('下载请求失败', true);
+        if (!quiet) toast('下载请求失败', true);
+        return 'failed';
     }
 }
 async function toggleFavorite(songId) {
@@ -1464,29 +1482,42 @@ async function batchFavoriteSongs() {
     }
 }
 
-async function batchDeleteLocalSongs() {
+async function batchDownloadLocalSongs() {
+    const seen = new Set();
     const songs = Array.from(state.selectedSongIds)
         .map(id => findSongInState(id))
-        .filter(song => song && song.downloaded);
+        .filter(song => {
+            if (!song || song.downloaded || seen.has(song.id)) return false;
+            seen.add(song.id);
+            return true;
+        });
 
-    if (!songs.length) return toast('选中的歌曲里没有本地下载', true);
-    if (!confirm(`确定要删除 ${songs.length} 首本地下载吗？删除后需要重新下载。`)) return;
+    if (!songs.length) return toast('选中的歌曲都已在本地', true);
 
-    let deleted = 0;
+    let downloaded = 0;
+    let failed = 0;
     try {
         for (const song of songs) {
-            const ok = await deleteLocalSongSilently(song.id);
-            if (ok) {
-                deleted++;
-                syncSongRemovedFromCaches(song.id);
-            }
+            const result = await downloadSong(song.id, { quiet: true });
+            if (result === 'downloaded') downloaded++;
+            else if (result === 'failed' || result === 'missing') failed++;
         }
-        await Promise.all([loadFavorites(), loadDownloads(), loadPlaylists()]);
+        await loadDownloads();
+        syncCachedSongFlags();
         clearBatchSelection();
-        refreshCurrentTab();
-        toast(`已删除 ${deleted} 首本地文件`);
+        if (state.currentTab !== 'downloads') {
+            refreshCurrentTab();
+        }
+
+        if (downloaded && failed) {
+            toast(`已本地下载 ${downloaded} 首，${failed} 首失败`, failed > 0);
+        } else if (downloaded) {
+            toast(`已本地下载 ${downloaded} 首`);
+        } else {
+            toast('本地下载失败', true);
+        }
     } catch (err) {
-        toast(err.message || '批量删除失败', true);
+        toast(err.message || '本地下载失败', true);
     }
 }
 
