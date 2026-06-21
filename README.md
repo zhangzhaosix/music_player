@@ -2,7 +2,7 @@
 
 一个基于 Flask 的个人音乐网页，支持在线搜索、试听、下载、收藏和歌单管理。
 
-当前主搜索源为 [qjjlb.quanjian.com.cn/musicdl/](http://qjjlb.quanjian.com.cn/musicdl/)。
+当前搜索外部接口为 QQ 音乐、酷我、网易云。
 
 ## 功能
 
@@ -17,7 +17,7 @@
 ## 技术栈
 
 - 后端：Python + Flask
-- 网络请求：Requests + BeautifulSoup4
+- 网络请求：Requests
 - 前端：原生 HTML / CSS / JavaScript
 - 数据存储：`favorites.json` / `playlists.json`
 
@@ -29,8 +29,8 @@
 ## 安装与运行
 
 ```bash
-pip install -r requirements.txt
-python app.py
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe app.py
 ```
 
 浏览器访问：`http://127.0.0.1:5000`
@@ -48,7 +48,7 @@ python app.py
 
 ### 搜索与播放
 
-- GET `/api/search?q=关键词`：搜索歌曲
+- GET `/api/search?q=关键词&sources=qq,kuwo,netease&source_limit=20`：搜索歌曲；`sources` 可选 `qq`、`kuwo`、`netease`，`source_limit` 控制每个来源抓取数量
 - GET `/api/song-info?url=歌曲URL`：获取歌曲详情和播放直链
 - GET `/api/proxy-stream?url=MP3直链`：代理在线播放
 

@@ -16,6 +16,7 @@ const state = {
     isBatchMode: false,
     currentPlaylistDetailId: null,
     currentLyricIndex: -1,
+    selectedSearchSources: new Set(['qq', 'kuwo', 'netease']),
 };
 
 // DOM 引用
@@ -23,6 +24,7 @@ const $ = id => document.getElementById(id);
 const audio = $('audioPlayer');
 const searchInput = $('searchInput');
 const searchBtn = $('searchBtn');
+const sourceToggles = document.querySelectorAll('.source-toggle');
 const playBtn = $('playBtn');
 const prevBtn = $('prevBtn');
 const nextBtn = $('nextBtn');
@@ -114,6 +116,16 @@ const DEFAULT_LYRIC_LINES = [
     '当音乐播放时，唱片会跟随状态缓慢旋转。',
     '暂停之后，夜色和节拍一起停在这里。',
 ];
+const SEARCH_SOURCE_LIMIT = 20;
+const SOURCE_LABELS = {
+    qq: 'QQ',
+    kuwo: '酷我',
+    netease: '网易云',
+};
+
+function getSelectedSearchSources() {
+    return Array.from(state.selectedSearchSources);
+}
 
 function getSongInitial(song) {
     const text = (song && (song.title || song.artist)) || '♪';
@@ -123,7 +135,8 @@ function getSongInitial(song) {
 function getSourceLabel(song) {
     if (!song) return 'LOCAL PLAYER';
     if (song.downloaded || song.filename) return 'LOCAL FILE';
-    return (song.source || 'qeecc').toUpperCase();
+    if (song.type && SOURCE_LABELS[song.type]) return SOURCE_LABELS[song.type];
+    return (song.source || 'ONLINE').toUpperCase();
 }
 
 function getSongMeta(song) {
@@ -441,6 +454,23 @@ if (moreBtn) {
 
 // ─── 搜索 ───────────────────────────────────────────────
 
+sourceToggles.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const source = btn.dataset.source;
+        if (!source) return;
+
+        if (state.selectedSearchSources.has(source)) {
+            state.selectedSearchSources.delete(source);
+        } else {
+            state.selectedSearchSources.add(source);
+        }
+
+        const active = state.selectedSearchSources.has(source);
+        btn.classList.toggle('active', active);
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+});
+
 searchBtn.addEventListener('click', doSearch);
 searchInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') doSearch();
@@ -471,6 +501,8 @@ if (backupFileInput) {
 async function doSearch() {
     const q = searchInput.value.trim();
     if (!q) return toast('请输入搜索关键词', true);
+    const sources = getSelectedSearchSources();
+    if (!sources.length) return toast('请至少选择一个搜索源', true);
 
     // 切换到搜索结果标签
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -484,7 +516,12 @@ async function doSearch() {
     container.innerHTML = '<div class="loading">搜索中</div>';
 
     try {
-        const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+        const params = new URLSearchParams({
+            q,
+            sources: sources.join(','),
+            source_limit: String(SEARCH_SOURCE_LIMIT),
+        });
+        const resp = await fetch(`/api/search?${params.toString()}`);
         const data = await resp.json();
         if (data.error) {
             container.innerHTML = `<div class="empty-state"><p>${data.error}</p></div>`;
@@ -853,16 +890,6 @@ function resolvePlayableSong(songId) {
         };
     }
 
-    if (/^[A-Za-z0-9_-]+$/.test(songId)) {
-        return {
-            id: songId,
-            title: '未知歌曲',
-            artist: '未知歌手',
-            url: 'https://www.qeecc.com/song/' + songId + '.html',
-            downloaded: false,
-        };
-    }
-
     return null;
 }
 
@@ -914,9 +941,12 @@ async function getProxyUrl(songUrl) {
     }
 }
 
-async function fetchOnlineSongInfo(songUrl) {
+async function fetchOnlineSongInfo(songUrl, song = null) {
     try {
-        const resp = await fetch(`/api/song-info?url=${encodeURIComponent(songUrl)}`);
+        const params = new URLSearchParams({ url: songUrl });
+        if (song && song.title) params.set('title', song.title);
+        if (song && song.artist) params.set('artist', song.artist);
+        const resp = await fetch(`/api/song-info?${params.toString()}`);
         const data = await resp.json();
         if (data.error) {
             toast(data.error, true);
@@ -939,6 +969,7 @@ function mergeSongInfo(song, info) {
         lyric_id: info.lyric_id || song.lyric_id,
         mp3_url: info.mp3_url || song.mp3_url,
         source_url: info.source_url || song.source_url || song.url,
+        url: info.source_url || song.source_url || song.url,
     };
 
     if (Array.isArray(info.lyrics) && info.lyrics.length) {
@@ -965,13 +996,16 @@ async function loadOnlineSongInfo(song) {
 
     const directMp3Url = song.mp3_url || (song.url && /\.mp3(?:[?#].*)?$/i.test(song.url) ? song.url : '');
     if (directMp3Url) {
+        const infoSourceUrl = song.source_url || song.url;
+        const info = infoSourceUrl ? await fetchOnlineSongInfo(infoSourceUrl, song) : null;
         return {
-            song: mergeSongInfo(song, {
+            song: mergeSongInfo(song, info || {
                 title: song.title,
                 artist: song.artist,
                 mp3_url: directMp3Url,
-                source_url: song.source_url || song.url,
+                source_url: infoSourceUrl,
                 cover_url: song.cover_url,
+                lyrics: song.lyrics,
             }),
             audioUrl: "/api/proxy-stream?url=" + encodeURIComponent(directMp3Url),
         };
@@ -983,7 +1017,7 @@ async function loadOnlineSongInfo(song) {
         };
     }
 
-    const info = await fetchOnlineSongInfo(song.url);
+    const info = await fetchOnlineSongInfo(song.url, song);
     if (!info || !info.mp3_url) return null;
 
     return {
