@@ -41,7 +41,7 @@ _qjjlb_session = None
 _musicbox_session = None
 _search_cache = {}
 _search_cache_ttl = 300
-SEARCH_SOURCES = ('qq',)
+SEARCH_SOURCES = ('qq', 'kuwo', 'netease')
 DEFAULT_SOURCE_LIMIT = 20
 
 
@@ -528,6 +528,29 @@ def write_download_index(records):
     write_json(DOWNLOAD_INDEX_FILE, records)
 
 
+def local_stream_url(filename):
+    return f'/api/stream/{urllib.parse.quote(filename)}'
+
+
+def existing_music_file(filename):
+    filename = str(filename or '').strip()
+    if not filename:
+        return ''
+    if '..' in filename or '/' in filename or '\\' in filename:
+        return ''
+    return filename if os.path.exists(os.path.join(MUSIC_DIR, filename)) else ''
+
+
+def get_download_record(filename):
+    filename = str(filename or '').strip()
+    if not filename:
+        return {}
+    for record in read_download_index():
+        if str(record.get('filename', '') or '').strip() == filename:
+            return record
+    return {}
+
+
 def same_song_identity(candidate_title, candidate_artist, title, artist):
     candidate_title = normalize_song_match_text(candidate_title)
     candidate_artist = normalize_song_match_text(candidate_artist)
@@ -580,6 +603,76 @@ def find_existing_downloaded_song(song_url='', source_url='', title='', artist='
     return ''
 
 
+def hydrate_song_entry(song, favorites_by_id=None):
+    favorites_by_id = favorites_by_id or {}
+    if isinstance(song, dict):
+        hydrated = dict(song)
+    else:
+        song_id = str(song or '').strip()
+        hydrated = dict(favorites_by_id.get(song_id, {}))
+        if not hydrated:
+            hydrated = {'id': song_id, 'title': song_id, 'artist': '未知歌手', 'url': ''}
+
+    song_id = str(hydrated.get('id', '') or '').strip()
+    filename = existing_music_file(hydrated.get('filename', ''))
+    if not filename and song_id.lower().endswith('.mp3'):
+        filename = existing_music_file(song_id)
+    if not filename:
+        filename = find_existing_downloaded_song(
+            hydrated.get('url', ''),
+            hydrated.get('source_url', ''),
+            hydrated.get('title', ''),
+            hydrated.get('artist', ''),
+        )
+
+    if filename:
+        record = get_download_record(filename)
+        hydrated['filename'] = filename
+        hydrated['downloaded'] = True
+        hydrated['mp3_url'] = local_stream_url(filename)
+        hydrated.setdefault('id', song_id or filename)
+        if record:
+            if not hydrated.get('title') or hydrated.get('title') == filename:
+                hydrated['title'] = record.get('title') or hydrated.get('title') or filename
+            if not hydrated.get('artist') or hydrated.get('artist') == '未知歌手':
+                hydrated['artist'] = record.get('artist') or hydrated.get('artist') or '未知歌手'
+            hydrated['url'] = hydrated.get('url') or record.get('song_url') or record.get('source_url') or ''
+            hydrated['source_url'] = hydrated.get('source_url') or record.get('source_url') or record.get('song_url') or ''
+    else:
+        hydrated['downloaded'] = bool(hydrated.get('downloaded') and hydrated.get('filename'))
+
+    hydrated.setdefault('id', song_id or hydrated.get('filename', '') or hydrated.get('url', ''))
+    hydrated.setdefault('title', '未知歌曲')
+    hydrated.setdefault('artist', '未知歌手')
+    hydrated.setdefault('url', '')
+    hydrated.setdefault('filename', '')
+    return hydrated
+
+
+def search_local_songs(keyword):
+    keyword_norm = normalize_song_match_text(keyword)
+    if not keyword_norm:
+        return []
+
+    results = []
+    seen = set()
+    for song in get_local_music():
+        hydrated = hydrate_song_entry(song)
+        haystack = normalize_song_match_text(' '.join([
+            hydrated.get('title', ''),
+            hydrated.get('artist', ''),
+            hydrated.get('filename', ''),
+        ]))
+        if keyword_norm not in haystack:
+            continue
+        song_id = hydrated.get('id')
+        if song_id in seen:
+            continue
+        seen.add(song_id)
+        results.append(hydrated)
+    return results
+
+
 def save_download_record(*, filename, title='', artist='', song_url='', source_url='', resolved_url=''):
     filename = str(filename or '').strip()
     if not filename:
@@ -613,6 +706,21 @@ def get_favorites_map():
     """返回 {song_id: fav_entry} 的映射，方便快速查询"""
     favs = read_json(FAVORITES_FILE)
     return {f['id']: f for f in favs}
+
+
+def is_song_favorited(song, favorites):
+    if not isinstance(song, dict):
+        return False
+    for fav in favorites.values():
+        if not isinstance(fav, dict):
+            continue
+        if fav.get('id') == song.get('id'):
+            return True
+        if fav.get('filename') and fav.get('filename') == song.get('filename'):
+            return True
+        if same_song_identity(fav.get('title', ''), fav.get('artist', ''), song.get('title', ''), song.get('artist', '')):
+            return True
+    return False
 
 
 def is_supported_song_url(song_url):
@@ -1070,9 +1178,15 @@ def api_search():
     results = search_qjjlb(q, limit=len(SEARCH_SOURCES) * source_limit, source_names=SEARCH_SOURCES, source_limit=source_limit)
     if isinstance(results, tuple):
         payload, status_code = results
-        if int(status_code or 500) >= 500:
+        local_results = search_local_songs(q)
+        if local_results:
+            results = local_results
+        elif int(status_code or 500) >= 500:
             return jsonify(payload)
-        return jsonify(payload), status_code
+        else:
+            return jsonify(payload), status_code
+    elif not results:
+        results = search_local_songs(q)
 
     # 标记已下载和已收藏状态
     local_songs = {s['id'] for s in get_local_music()}
@@ -1088,7 +1202,7 @@ def api_search():
         song['downloaded'] = bool(existing_filename) or song['id'] in local_songs
         if existing_filename:
             song['filename'] = existing_filename
-        song['favorited'] = song['id'] in favs
+        song['favorited'] = is_song_favorited(song, favs)
 
     return jsonify({'results': results})
 
@@ -1101,6 +1215,20 @@ def api_song_info():
     artist = request.args.get('artist', '').strip()
     if not url:
         return jsonify({'error': '缺少歌曲链接'}), 400
+
+    existing_filename = find_existing_downloaded_song(url, url, title, artist)
+    if existing_filename:
+        return jsonify({
+            'title': title or os.path.splitext(existing_filename)[0],
+            'artist': artist,
+            'mp3_url': local_stream_url(existing_filename),
+            'source_url': url,
+            'filename': existing_filename,
+            'downloaded': True,
+            'cover_url': '',
+            'lyric_id': '',
+            'lyrics': [],
+        })
 
     info, err = get_song_info(url)
     if info and not err and has_real_lyrics_entries(info.get('lyrics')):
@@ -1128,7 +1256,7 @@ def api_song_info():
 @app.route('/api/music')
 def api_music():
     """获取本地音乐列表"""
-    songs = get_local_music()
+    songs = [hydrate_song_entry(song) for song in get_local_music()]
     favs = get_favorites_map()
 
     for song in songs:
@@ -1329,7 +1457,8 @@ def api_download():
 
 @app.route('/api/favorites', methods=['GET'])
 def api_get_favorites():
-    return jsonify({'favorites': read_json(FAVORITES_FILE)})
+    favorites = [hydrate_song_entry(fav) for fav in read_json(FAVORITES_FILE)]
+    return jsonify({'favorites': favorites})
 
 
 @app.route('/api/favorites', methods=['POST'])
@@ -1338,20 +1467,27 @@ def api_add_favorite():
     if not data or not data.get('id'):
         return jsonify({'error': '缺少歌曲信息'}), 400
 
-    favs = read_json(FAVORITES_FILE)
-    # 去重
-    if any(f['id'] == data['id'] for f in favs):
-        return jsonify({'success': True, 'message': '已收藏'})
-
     fav = {
         'id': data['id'],
         'title': data.get('title', '未知歌曲'),
         'artist': data.get('artist', '未知歌手'),
         'url': data.get('url', ''),
+        'source_url': data.get('source_url', ''),
+        'mp3_url': data.get('mp3_url', ''),
         'filename': data.get('filename', ''),
         'downloaded': data.get('downloaded', False),
         'added_at': datetime.now().isoformat(),
     }
+    fav = hydrate_song_entry(fav)
+    favs = read_json(FAVORITES_FILE)
+    for existing in favs:
+        if (
+            existing.get('id') == fav.get('id')
+            or (existing.get('filename') and existing.get('filename') == fav.get('filename'))
+            or same_song_identity(existing.get('title', ''), existing.get('artist', ''), fav.get('title', ''), fav.get('artist', ''))
+        ):
+            return jsonify({'success': True, 'message': '已收藏', 'favorite': hydrate_song_entry(existing)})
+
     favs.append(fav)
     write_json(FAVORITES_FILE, favs)
     return jsonify({'success': True, 'favorite': fav})
@@ -1374,7 +1510,12 @@ def api_remove_favorite():
 
 @app.route('/api/playlists', methods=['GET'])
 def api_get_playlists():
-    return jsonify({'playlists': read_json(PLAYLISTS_FILE)})
+    favorites_by_id = get_favorites_map()
+    playlists = read_json(PLAYLISTS_FILE)
+    for playlist in playlists:
+        songs = playlist.get('songs', [])
+        playlist['songs'] = [hydrate_song_entry(song, favorites_by_id) for song in songs]
+    return jsonify({'playlists': playlists})
 
 
 @app.route('/api/playlists', methods=['POST'])
@@ -1406,10 +1547,11 @@ def api_update_playlist(playlist_id):
             if 'name' in data:
                 pl['name'] = data['name'].strip()
             if 'songs' in data:
-                pl['songs'] = data['songs']
+                pl['songs'] = [hydrate_song_entry(song, get_favorites_map()) for song in data['songs']]
             if 'add_song' in data:
-                if data['add_song'] not in pl['songs']:
-                    pl['songs'].append(data['add_song'])
+                add_song = hydrate_song_entry(data['add_song'], get_favorites_map())
+                if not any((s.get('id') if isinstance(s, dict) else s) == add_song.get('id') for s in pl['songs']):
+                    pl['songs'].append(add_song)
             if 'remove_song' in data:
                 remove_song_id = data['remove_song']
                 pl['songs'] = [

@@ -321,18 +321,35 @@ function syncCachedSongFlags() {
     for (const list of lists) {
         for (const song of list) {
             if (!song) continue;
-            song.favorited = favoriteIds.has(song.id);
-            song.downloaded = Boolean(song.filename) || localIds.has(song.id) || state.localMusic.some(localSong => {
-                return sameSongIdentity(localSong.title, song.title) && sameSongIdentity(localSong.artist, song.artist);
+            const favorite = findFavoriteForSong(song);
+            const localSong = state.localMusic.find(item => {
+                return item.id === song.id
+                    || (item.filename && song.filename && item.filename === song.filename)
+                    || (sameSongIdentity(item.title, song.title) && sameSongIdentity(item.artist, song.artist));
             });
+            song.favorited = Boolean(favorite || favoriteIds.has(song.id));
+            song.downloaded = Boolean(song.filename) || localIds.has(song.id) || Boolean(localSong);
+            if (localSong && !song.filename) song.filename = localSong.filename;
+            if (localSong && !song.url) song.url = localSong.url || localSong.source_url || '';
+            if (localSong && !song.source_url) song.source_url = localSong.source_url || localSong.url || '';
         }
     }
 
     syncFavoriteCurrentButton();
 }
 
+function findFavoriteForSong(songOrId) {
+    const song = typeof songOrId === 'object' ? songOrId : findSongInState(songOrId);
+    const songId = typeof songOrId === 'object' ? songOrId?.id : songOrId;
+    return state.favorites.find(fav => {
+        return fav.id === songId
+            || (song && fav.filename && song.filename && fav.filename === song.filename)
+            || (song && sameSongIdentity(fav.title, song.title) && sameSongIdentity(fav.artist, song.artist));
+    });
+}
+
 function isSongFavorited(songId) {
-    return state.favorites.some(f => f.id === songId);
+    return Boolean(findFavoriteForSong(songId));
 }
 
 function syncFavoriteCurrentButton() {
@@ -947,11 +964,15 @@ async function playSong(songId) {
 }
 
 function findSongInState(songId) {
+    const playlistSongs = state.playlists.flatMap(pl => (pl.songs || []).filter(song => {
+        return song && typeof song === 'object' && !Array.isArray(song);
+    }));
     const sources = [
         ...state.searchResults,
         ...state.localMusic,
         ...state.favorites,
         ...state.queue,
+        ...playlistSongs,
     ];
     return sources.find(s => s.id === songId);
 }
@@ -1424,14 +1445,15 @@ async function toggleFavorite(songId) {
     const song = findSongInState(songId);
     if (!song) return toast('找不到歌曲', true);
 
-    const favorited = isSongFavorited(songId);
+    const favorite = findFavoriteForSong(song);
+    const favorited = Boolean(favorite);
 
     if (favorited) {
         try {
             const resp = await fetch('/api/favorites', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: songId }),
+                body: JSON.stringify({ id: favorite.id }),
             });
             const data = await resp.json();
             if (!data.success) {
@@ -1454,6 +1476,8 @@ async function toggleFavorite(songId) {
                     title: song.title,
                     artist: song.artist,
                     url: song.url,
+                    source_url: song.source_url || song.url || '',
+                    mp3_url: song.mp3_url || '',
                     filename: song.filename || '',
                     downloaded: song.downloaded || false,
                 }),
@@ -1469,6 +1493,8 @@ async function toggleFavorite(songId) {
                     title: song.title,
                     artist: song.artist,
                     url: song.url || '',
+                    source_url: song.source_url || song.url || '',
+                    mp3_url: song.mp3_url || '',
                     filename: song.filename || '',
                     downloaded: song.downloaded || false,
                 });
@@ -1726,6 +1752,8 @@ async function batchFavoriteSongs() {
                     title: song.title,
                     artist: song.artist,
                     url: song.url,
+                    source_url: song.source_url || song.url || '',
+                    mp3_url: song.mp3_url || '',
                     filename: song.filename || '',
                     downloaded: song.downloaded || false,
                 }),
