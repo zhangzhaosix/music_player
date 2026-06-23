@@ -82,10 +82,9 @@
             </div>
 
             <div class="search-bar">
-                <input type="text" id="searchInput" placeholder="搜索歌曲、歌手..." autocomplete="off">
+                <input type="text" id="searchInput" placeholder="搜索 QQ 音乐歌曲、歌手..." autocomplete="off">
                 <button id="searchBtn" type="button">搜索</button>
             </div>
-
             <nav class="tabs" aria-label="音乐库分类">
                 <button class="tab" type="button" data-tab="search">搜索结果</button>
                 <button class="tab active" type="button" data-tab="favorites">收藏</button>
@@ -93,31 +92,25 @@
                 <button class="tab" type="button" data-tab="downloads">下载</button>
             </nav>
 
-            <div class="page-tools">
-                <div id="batchToolbar" class="batch-toolbar hidden">
-                    <span id="batchCount" class="batch-count">已选择 0 首</span>
-                    <button id="batchCancelBtn" class="tool-btn" type="button">取消选择</button>
-                    <button id="batchFavoriteBtn" class="tool-btn" type="button">批量收藏</button>
-                    <button id="batchPlaylistBtn" class="tool-btn" type="button">加入歌单</button>
-                    <button id="batchDeleteBtn" class="tool-btn" type="button">本地下载</button>
-                    <button id="batchSelectAllBtn" class="tool-btn" type="button">全选当前页</button>
-                </div>
-                <div class="backup-toolbar">
-                    <button id="exportBackupBtn" class="tool-btn subtle" type="button">导出备份</button>
-                    <button id="importBackupBtn" class="tool-btn subtle" type="button">导入备份</button>
-                    <input type="file" id="backupFileInput" accept=".json,application/json" hidden>
-                </div>
-            </div>
-
             <div class="main-layout">
                 <main class="content-area">
                     <div id="tab-search" class="tab-content">
                         <div id="searchResults" class="song-list"></div>
                     </div>
                     <div id="tab-favorites" class="tab-content active">
+                        <div class="page-tools">
+                            <div id="batchToolbar" class="batch-toolbar hidden" aria-label="收藏批量操作">
+                                <span id="batchCount" class="batch-count" aria-live="polite">已选中 0 首</span>
+                                <button id="batchSelectAllBtn" class="tool-btn subtle" type="button">全选</button>
+                                <button id="batchCancelBtn" class="tool-btn subtle" type="button">取消全选</button>
+                                <button id="batchPlaylistBtn" class="tool-btn" type="button">添加至歌单</button>
+                                <button id="batchDownloadBtn" class="tool-btn" type="button">下载歌曲</button>
+                            </div>
+                        </div>
                         <div id="favSongs" class="song-list"></div>
                     </div>
                     <div id="tab-downloads" class="tab-content">
+                        <div class="playlists-grid download-playlists-grid" id="downloadPlaylistsGrid"></div>
                         <div id="downloadSongs" class="song-list"></div>
                     </div>
                     <div id="tab-playlists" class="tab-content">
@@ -147,6 +140,26 @@
                 </div>
             </div>
         </div>
+        <div id="downloadPlaylistModal" class="modal-overlay" style="display:none">
+            <div class="modal-box">
+                <h3>创建下载歌单</h3>
+                <input type="text" id="downloadPlaylistNameInput" placeholder="输入下载歌单名称..." autocomplete="off">
+                <div class="modal-actions">
+                    <button id="cancelDownloadPlaylistBtn" class="btn-secondary" type="button">取消</button>
+                    <button id="confirmDownloadPlaylistBtn" class="btn-primary" type="button">创建</button>
+                </div>
+            </div>
+        </div>
+        <div id="deleteConfirmModal" class="modal-overlay" style="display:none" aria-hidden="true">
+            <div class="modal-box modal-box-danger" role="dialog" aria-modal="true" aria-labelledby="deleteConfirmTitle" aria-describedby="deleteConfirmMessage">
+                <h3 id="deleteConfirmTitle">确认删除</h3>
+                <p id="deleteConfirmMessage" class="modal-message"></p>
+                <div class="modal-actions">
+                    <button id="cancelDeleteConfirmBtn" class="btn-secondary" type="button">取消</button>
+                    <button id="confirmDeleteConfirmBtn" class="btn-danger" type="button">确认删除</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="player" class="player-bar">
@@ -163,9 +176,6 @@
             <button id="favoriteCurrentBtn" class="icon-btn" type="button" title="喜欢当前歌曲" aria-label="喜欢当前歌曲">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 018-3.1 4.6 4.6 0 018 3.1z"/></svg>
             </button>
-            <button id="commentCurrentBtn" class="icon-btn" type="button" title="评论" aria-label="评论">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H8l-3 3v-13z"/></svg>
-            </button>
         </div>
         <div class="equalizer" id="equalizer" aria-hidden="true">
             <span></span><span></span><span></span><span></span>
@@ -181,12 +191,8 @@
         </div>
         <div class="player-volume">
             <span class="quality-badge">SQ</span>
-            <button id="lyricToggleBtn" class="icon-btn" type="button" title="歌词" aria-label="歌词">词</button>
             <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zM16 9.5a4 4 0 010 5"/></svg>
             <input type="range" id="volumeBar" class="volume-bar" value="80" min="0" max="100" aria-label="音量">
-            <button id="moreBtn" class="icon-btn" type="button" title="更多" aria-label="更多">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg>
-            </button>
         </div>
     </div>
 

@@ -1,4 +1,4 @@
-import os
+﻿import os
 import json
 import uuid
 import re
@@ -15,6 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MUSIC_DIR = os.path.join(BASE_DIR, '音乐合集')
 FAVORITES_FILE = os.path.join(BASE_DIR, 'favorites.json')
 PLAYLISTS_FILE = os.path.join(BASE_DIR, 'playlists.json')
+DOWNLOAD_INDEX_FILE = os.path.join(BASE_DIR, 'downloads.json')
 QJJLB_BASE = 'http://qjjlb.quanjian.com.cn/musicdl/'
 QJJLB_ORIGIN = 'http://qjjlb.quanjian.com.cn'
 MUSICBOX_WEB_BASE = 'https://mu-jie.cc/musicBox/'
@@ -40,8 +41,21 @@ _qjjlb_session = None
 _musicbox_session = None
 _search_cache = {}
 _search_cache_ttl = 300
-SEARCH_SOURCES = ('qq', 'kuwo', 'netease')
+SEARCH_SOURCES = ('qq',)
 DEFAULT_SOURCE_LIMIT = 20
+
+
+def format_upstream_request_error(source_name, error):
+    message = str(error or '').strip()
+    lowered = message.lower()
+    blocked_markers = (
+        'winerror 10013',
+        'failed to establish a new connection',
+        'max retries exceeded',
+    )
+    if any(marker in lowered for marker in blocked_markers):
+        return f'{source_name} 暂时不可用，请检查本机网络权限或代理设置后重试'
+    return f'{source_name} 请求失败，请稍后重试'
 
 
 def get_qjjlb_session():
@@ -100,20 +114,6 @@ def store_search_results(keyword, results, source_names=None, source_limit=DEFAU
         'ts': time.time(),
         'results': [dict(song) for song in results],
     }
-
-
-def parse_search_sources(raw_sources):
-    if not raw_sources:
-        return list(SEARCH_SOURCES), None
-
-    sources = [s.strip().lower() for s in str(raw_sources).split(',') if s.strip()]
-    invalid = [s for s in sources if s not in SEARCH_SOURCES]
-    if invalid:
-        return None, f'不支持的搜索源: {", ".join(invalid)}'
-    if not sources:
-        return None, '请至少选择一个搜索源'
-    sources = list(dict.fromkeys(sources))
-    return sources, None
 
 
 def parse_lrc_text(lrc_text):
@@ -201,6 +201,7 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
         'lyrics': parse_lrc_text(lyrics_text or item.get('lrc', '') or item.get('lyric', '') or ''),
     }
 
+
 def fetch_qjjlb_json(url, params=None, timeout=20):
     sess = get_qjjlb_session()
     try:
@@ -219,8 +220,10 @@ def fetch_qjjlb_json(url, params=None, timeout=20):
         if resp is None:
             raise last_err
         return resp.json(), None
-    except (requests.RequestException, json.JSONDecodeError, ValueError) as e:
-        return None, f'qjjlb 请求失败: {str(e)}'
+    except requests.RequestException as e:
+        return None, format_upstream_request_error('qjjlb', e)
+    except (json.JSONDecodeError, ValueError):
+        return None, 'qjjlb 返回了无效数据'
 
 
 def fetch_qjjlb_text(url, params=None, timeout=20):
@@ -242,7 +245,7 @@ def fetch_qjjlb_text(url, params=None, timeout=20):
             raise last_err
         return resp.text, None
     except requests.RequestException as e:
-        return None, f'qjjlb 请求失败: {str(e)}'
+        return None, format_upstream_request_error('qjjlb', e)
 
 
 def fetch_musicbox_json(url, params=None, timeout=20):
@@ -263,8 +266,10 @@ def fetch_musicbox_json(url, params=None, timeout=20):
         if resp is None:
             raise last_err
         return resp.json(), None
-    except (requests.RequestException, json.JSONDecodeError, ValueError) as e:
-        return None, f'musicBox 请求失败: {str(e)}'
+    except requests.RequestException as e:
+        return None, format_upstream_request_error('musicBox', e)
+    except (json.JSONDecodeError, ValueError):
+        return None, 'musicBox 返回了无效数据'
 
 
 def fetch_musicbox_text(url, params=None, timeout=20):
@@ -286,7 +291,7 @@ def fetch_musicbox_text(url, params=None, timeout=20):
             raise last_err
         return resp.text, None
     except requests.RequestException as e:
-        return None, f'musicBox 请求失败: {str(e)}'
+        return None, format_upstream_request_error('musicBox', e)
 
 
 def make_musicbox_netease_song(item):
@@ -510,6 +515,98 @@ def get_local_music():
                 'artist': song_artist,
             })
     return songs
+
+
+def read_download_index():
+    records = read_json(DOWNLOAD_INDEX_FILE)
+    if not isinstance(records, list):
+        return []
+    return [record for record in records if isinstance(record, dict)]
+
+
+def write_download_index(records):
+    write_json(DOWNLOAD_INDEX_FILE, records)
+
+
+def same_song_identity(candidate_title, candidate_artist, title, artist):
+    candidate_title = normalize_song_match_text(candidate_title)
+    candidate_artist = normalize_song_match_text(candidate_artist)
+    title = normalize_song_match_text(title)
+    artist = normalize_song_match_text(artist)
+    if not title or not artist or not candidate_title or not candidate_artist:
+        return False
+
+    return (
+        (candidate_title == title or candidate_title in title or title in candidate_title)
+        and (candidate_artist == artist or candidate_artist in artist or artist in candidate_artist)
+    )
+
+
+def find_existing_downloaded_song(song_url='', source_url='', title='', artist=''):
+    candidates = []
+    for candidate in (song_url, source_url):
+        candidate = str(candidate or '').strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    local_music = get_local_music()
+    records = read_download_index()
+
+    # 先按原始链接/解析后的链接命中
+    for record in records:
+        filename = str(record.get('filename', '') or '').strip()
+        if not filename or not os.path.exists(os.path.join(MUSIC_DIR, filename)):
+            continue
+        record_urls = {
+            str(record.get('source_url', '') or '').strip(),
+            str(record.get('resolved_url', '') or '').strip(),
+            str(record.get('song_url', '') or '').strip(),
+        }
+        if any(candidate and candidate in record_urls for candidate in candidates):
+            return filename
+
+    # 再按标题+歌手兜底
+    for record in records:
+        filename = str(record.get('filename', '') or '').strip()
+        if not filename or not os.path.exists(os.path.join(MUSIC_DIR, filename)):
+            continue
+        if same_song_identity(record.get('title', ''), record.get('artist', ''), title, artist):
+            return filename
+
+    for song in local_music:
+        if same_song_identity(song.get('title', ''), song.get('artist', ''), title, artist):
+            return song.get('filename', '')
+
+    return ''
+
+
+def save_download_record(*, filename, title='', artist='', song_url='', source_url='', resolved_url=''):
+    filename = str(filename or '').strip()
+    if not filename:
+        return
+
+    records = [record for record in read_download_index() if str(record.get('filename', '') or '').strip() != filename]
+    records.append({
+        'filename': filename,
+        'title': str(title or '').strip(),
+        'artist': str(artist or '').strip(),
+        'song_url': str(song_url or '').strip(),
+        'source_url': str(source_url or '').strip(),
+        'resolved_url': str(resolved_url or '').strip(),
+        'downloaded_at': datetime.now().isoformat(),
+    })
+    write_download_index(records)
+
+
+def remove_download_record(filename):
+    filename = str(filename or '').strip()
+    if not filename:
+        return
+
+    records = read_download_index()
+    next_records = [record for record in records if str(record.get('filename', '') or '').strip() != filename]
+    if len(next_records) != len(records):
+        write_download_index(next_records)
 
 
 def get_favorites_map():
@@ -888,6 +985,26 @@ def extract_mp3_url(song_url):
     return mp3_url, None
 
 
+def resolve_download_target(song_url, source_url=''):
+    candidates = []
+    for candidate in (song_url, source_url):
+        candidate = str(candidate or '').strip()
+        if candidate and candidate not in candidates:
+            candidates.append(candidate)
+
+    last_err = None
+    for candidate in candidates:
+        if re.search(r'\.mp3(?:[?#].*)?$', candidate, flags=re.IGNORECASE):
+            return candidate, candidate, None
+
+        mp3_url, err = extract_mp3_url(candidate)
+        if mp3_url:
+            return mp3_url, candidate, None
+        last_err = err
+
+    return None, None, last_err or '该歌曲链接已不再支持，请重新搜索'
+
+
 def get_song_info(song_url):
     if not song_url:
         return {'error': '无法提取歌曲链接'}, '无法提取歌曲链接'
@@ -943,9 +1060,6 @@ def api_search():
     if not q:
         return jsonify({'error': '请输入搜索关键词'}), 400
 
-    source_names, source_err = parse_search_sources(request.args.get('sources', ''))
-    if source_err:
-        return jsonify({'error': source_err}), 400
 
     try:
         source_limit = int(request.args.get('source_limit', DEFAULT_SOURCE_LIMIT))
@@ -953,16 +1067,27 @@ def api_search():
         return jsonify({'error': 'source_limit 必须是数字'}), 400
     source_limit = max(1, min(50, source_limit))
 
-    results = search_qjjlb(q, limit=len(source_names) * source_limit, source_names=source_names, source_limit=source_limit)
+    results = search_qjjlb(q, limit=len(SEARCH_SOURCES) * source_limit, source_names=SEARCH_SOURCES, source_limit=source_limit)
     if isinstance(results, tuple):
-        return jsonify(results[0]), results[1]
+        payload, status_code = results
+        if int(status_code or 500) >= 500:
+            return jsonify(payload)
+        return jsonify(payload), status_code
 
     # 标记已下载和已收藏状态
     local_songs = {s['id'] for s in get_local_music()}
     favs = get_favorites_map()
 
     for song in results:
-        song['downloaded'] = song['id'] in local_songs
+        existing_filename = find_existing_downloaded_song(
+            song.get('url', ''),
+            song.get('source_url', ''),
+            song.get('title', ''),
+            song.get('artist', ''),
+        )
+        song['downloaded'] = bool(existing_filename) or song['id'] in local_songs
+        if existing_filename:
+            song['filename'] = existing_filename
         song['favorited'] = song['id'] in favs
 
     return jsonify({'results': results})
@@ -1024,10 +1149,19 @@ def api_delete_music(filename):
     if not os.path.exists(filepath):
         return jsonify({'error': '文件不存在'}), 404
 
-    try:
-        os.remove(filepath)
-    except OSError as e:
-        return jsonify({'error': f'删除文件失败: {str(e)}'}), 500
+    last_error = None
+    for attempt in range(3):
+        try:
+            os.remove(filepath)
+            last_error = None
+            break
+        except OSError as e:
+            last_error = e
+            if getattr(e, 'winerror', None) != 32 or attempt == 2:
+                return jsonify({'error': f'删除文件失败: {str(e)}'}), 500
+            time.sleep(0.15)
+
+    remove_download_record(filename)
 
     # 先记录要清理的 song_id
     favs = read_json(FAVORITES_FILE)
@@ -1039,9 +1173,20 @@ def api_delete_music(filename):
     write_json(FAVORITES_FILE, favs)
 
     # 从所有歌单中移除关联的歌曲
+    def should_remove_playlist_song(song_item):
+        if isinstance(song_item, dict):
+            return (
+                song_item.get('id') in song_ids_to_remove
+                or song_item.get('filename') == filename
+            )
+        return song_item in song_ids_to_remove
+
     playlists = read_json(PLAYLISTS_FILE)
     for pl in playlists:
-        pl['songs'] = [s for s in pl['songs'] if s not in song_ids_to_remove]
+        songs = pl.get('songs') if isinstance(pl, dict) else []
+        if not isinstance(songs, list):
+            songs = []
+        pl['songs'] = [s for s in songs if not should_remove_playlist_song(s)]
     write_json(PLAYLISTS_FILE, playlists)
 
     return jsonify({'success': True, 'message': f'{filename} 已删除'})
@@ -1106,24 +1251,34 @@ def api_download():
     """下载歌曲到本地"""
     data = request.get_json()
     song_url = data.get('url', '').strip()
+    source_url = data.get('source_url', '').strip()
     title = data.get('title', '').strip()
+    artist = data.get('artist', '').strip()
 
     if not song_url:
         return jsonify({'error': '缺少歌曲链接'}), 400
 
-    if re.search(r'\.mp3(?:[?#].*)?$', song_url, flags=re.IGNORECASE):
-        mp3_url = song_url
-    else:
-        mp3_url, err = extract_mp3_url(song_url)
-        if err:
-            return jsonify({'error': f'获取下载链接失败: {err}'}), 502
+    existing_filename = find_existing_downloaded_song(song_url, source_url, title, artist)
+    if existing_filename:
+        return jsonify({
+            'success': True,
+            'skipped': True,
+            'filename': existing_filename,
+            'title': title or os.path.splitext(existing_filename)[0],
+            'message': '歌曲已存在本地',
+        })
+
+    mp3_url, resolved_url, err = resolve_download_target(song_url, source_url)
+    if err:
+        return jsonify({'error': f'获取下载链接失败: {err}'}), 502
+    resolved_url = resolved_url or song_url
 
     if not title:
-        info, _ = get_song_info(song_url)
+        info, _ = get_song_info(resolved_url)
         if info:
             title = info.get('title', '未知歌曲') or '未知歌曲'
         else:
-            parsed = urllib.parse.urlparse(song_url)
+            parsed = urllib.parse.urlparse(resolved_url)
             fallback_title = os.path.splitext(os.path.basename(parsed.path))[0].strip()
             title = fallback_title or '未知歌曲'
 
@@ -1150,11 +1305,21 @@ def api_download():
                     f.write(chunk)
                     total_size += len(chunk)
 
+        save_download_record(
+            filename=filename,
+            title=safe_title,
+            artist=artist,
+            song_url=song_url,
+            source_url=source_url,
+            resolved_url=resolved_url or mp3_url,
+        )
+
         return jsonify({
             'success': True,
             'filename': filename,
             'title': safe_title,
             'size': total_size,
+            'skipped': False,
         })
     except requests.RequestException as e:
         if os.path.exists(filepath):
@@ -1246,7 +1411,11 @@ def api_update_playlist(playlist_id):
                 if data['add_song'] not in pl['songs']:
                     pl['songs'].append(data['add_song'])
             if 'remove_song' in data:
-                pl['songs'] = [s for s in pl['songs'] if s != data['remove_song']]
+                remove_song_id = data['remove_song']
+                pl['songs'] = [
+                    s for s in pl['songs']
+                    if (s.get('id') if isinstance(s, dict) else s) != remove_song_id
+                ]
             write_json(PLAYLISTS_FILE, playlists)
             return jsonify({'success': True, 'playlist': pl})
 
@@ -1269,3 +1438,4 @@ if __name__ == '__main__':
     print(f'[Dir] 音乐目录: {MUSIC_DIR}')
     print(f'[URL] 访问地址: http://127.0.0.1:5000')
     app.run(debug=True, host='127.0.0.1', port=5000)
+

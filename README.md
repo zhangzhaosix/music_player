@@ -2,7 +2,7 @@
 
 一个基于 Flask 的个人音乐网页，支持在线搜索、试听、下载、收藏和歌单管理。
 
-当前搜索外部接口为 QQ 音乐、酷我、网易云。
+当前搜索外部接口默认使用 QQ 音乐。
 
 ## 功能
 
@@ -13,6 +13,7 @@
 - 管理歌单
 - 记忆音量与播放进度
 - 批量选中歌曲后可一键本地下载，已下载歌曲会自动跳过
+- 删除本地歌曲与删除歌单使用站内确认弹层，不再调用浏览器原生确认框
 
 ## 技术栈
 
@@ -48,7 +49,7 @@
 
 ### 搜索与播放
 
-- GET `/api/search?q=关键词&sources=qq,kuwo,netease&source_limit=20`：搜索歌曲；`sources` 可选 `qq`、`kuwo`、`netease`，`source_limit` 控制每个来源抓取数量
+- GET `/api/search?q=关键词&source_limit=20`：搜索 QQ 音乐歌曲，`source_limit` 控制抓取数量
 - GET `/api/song-info?url=歌曲URL`：获取歌曲详情和播放直链
 - GET `/api/proxy-stream?url=MP3直链`：代理在线播放
 

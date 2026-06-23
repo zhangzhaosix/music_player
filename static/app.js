@@ -16,7 +16,9 @@ const state = {
     isBatchMode: false,
     currentPlaylistDetailId: null,
     currentLyricIndex: -1,
-    selectedSearchSources: new Set(['qq', 'kuwo', 'netease']),
+    isSearching: false,
+    lastSearchKeyword: '',
+    searchDebounceTimer: null,
 };
 
 // DOM 引用
@@ -24,7 +26,6 @@ const $ = id => document.getElementById(id);
 const audio = $('audioPlayer');
 const searchInput = $('searchInput');
 const searchBtn = $('searchBtn');
-const sourceToggles = document.querySelectorAll('.source-toggle');
 const playBtn = $('playBtn');
 const prevBtn = $('prevBtn');
 const nextBtn = $('nextBtn');
@@ -42,11 +43,8 @@ const batchCount = $('batchCount');
 const batchCancelBtn = $('batchCancelBtn');
 const batchFavoriteBtn = $('batchFavoriteBtn');
 const batchPlaylistBtn = $('batchPlaylistBtn');
-const batchDownloadBtn = $('batchDeleteBtn');
+const batchDownloadBtn = $('batchDownloadBtn');
 const batchSelectAllBtn = $('batchSelectAllBtn');
-const exportBackupBtn = $('exportBackupBtn');
-const importBackupBtn = $('importBackupBtn');
-const backupFileInput = $('backupFileInput');
 const libraryToggle = $('libraryToggle');
 const queueBtn = $('queueBtn');
 const closeLibraryPanel = $('closeLibraryPanel');
@@ -63,9 +61,13 @@ const lyricsList = $('lyricsList');
 const aboutSongText = $('aboutSongText');
 const relatedSongText = $('relatedSongText');
 const favoriteCurrentBtn = $('favoriteCurrentBtn');
-const commentCurrentBtn = $('commentCurrentBtn');
-const lyricToggleBtn = $('lyricToggleBtn');
-const moreBtn = $('moreBtn');
+const deleteConfirmModal = $('deleteConfirmModal');
+const deleteConfirmTitle = $('deleteConfirmTitle');
+const deleteConfirmMessage = $('deleteConfirmMessage');
+const cancelDeleteConfirmBtn = $('cancelDeleteConfirmBtn');
+const confirmDeleteConfirmBtn = $('confirmDeleteConfirmBtn');
+
+let deleteConfirmResolver = null;
 
 // ─── SVG 图标 ──────────────────────────────────────────
 const ICON = {
@@ -101,6 +103,39 @@ function toast(msg, isError = false) {
     }, 2000);
 }
 
+function closeDeleteConfirm(confirmed) {
+    if (!deleteConfirmResolver) return;
+
+    deleteConfirmModal.style.display = 'none';
+    deleteConfirmModal.setAttribute('aria-hidden', 'true');
+
+    const resolve = deleteConfirmResolver;
+    deleteConfirmResolver = null;
+    resolve(confirmed);
+}
+
+function showDeleteConfirm({ title = '确认删除', message = '', confirmText = '确认删除' } = {}) {
+    if (!deleteConfirmModal || !deleteConfirmTitle || !deleteConfirmMessage || !confirmDeleteConfirmBtn) {
+        toast('删除确认框初始化失败', true);
+        return Promise.resolve(false);
+    }
+
+    if (deleteConfirmResolver) {
+        closeDeleteConfirm(false);
+    }
+
+    deleteConfirmTitle.textContent = title;
+    deleteConfirmMessage.textContent = message;
+    confirmDeleteConfirmBtn.textContent = confirmText;
+    deleteConfirmModal.style.display = 'flex';
+    deleteConfirmModal.setAttribute('aria-hidden', 'false');
+
+    return new Promise(resolve => {
+        deleteConfirmResolver = resolve;
+        requestAnimationFrame(() => cancelDeleteConfirmBtn?.focus());
+    });
+}
+
 function formatTime(sec) {
     if (!sec || isNaN(sec)) return '00:00';
     const m = Math.floor(sec / 60);
@@ -118,14 +153,8 @@ const DEFAULT_LYRIC_LINES = [
 ];
 const SEARCH_SOURCE_LIMIT = 20;
 const SOURCE_LABELS = {
-    qq: 'QQ',
-    kuwo: '酷我',
     netease: '网易云',
 };
-
-function getSelectedSearchSources() {
-    return Array.from(state.selectedSearchSources);
-}
 
 function getSongInitial(song) {
     const text = (song && (song.title || song.artist)) || '♪';
@@ -257,6 +286,7 @@ function syncImmersivePlayerUI() {
 
     renderLyrics(song);
     syncLyricHighlight();
+    syncFavoriteCurrentButton();
 }
 
 function setLibraryOpen(open) {
@@ -292,9 +322,28 @@ function syncCachedSongFlags() {
         for (const song of list) {
             if (!song) continue;
             song.favorited = favoriteIds.has(song.id);
-            song.downloaded = localIds.has(song.id);
+            song.downloaded = Boolean(song.filename) || localIds.has(song.id) || state.localMusic.some(localSong => {
+                return sameSongIdentity(localSong.title, song.title) && sameSongIdentity(localSong.artist, song.artist);
+            });
         }
     }
+
+    syncFavoriteCurrentButton();
+}
+
+function isSongFavorited(songId) {
+    return state.favorites.some(f => f.id === songId);
+}
+
+function syncFavoriteCurrentButton() {
+    if (!favoriteCurrentBtn) return;
+
+    const favorited = Boolean(state.currentSong && isSongFavorited(state.currentSong.id));
+    favoriteCurrentBtn.classList.toggle('favorited', favorited);
+    favoriteCurrentBtn.innerHTML = favorited ? ICON.heart : ICON.heartOutline;
+    favoriteCurrentBtn.title = favorited ? '取消收藏当前歌曲' : '收藏当前歌曲';
+    favoriteCurrentBtn.setAttribute('aria-label', favoriteCurrentBtn.title);
+    favoriteCurrentBtn.setAttribute('aria-pressed', favorited ? 'true' : 'false');
 }
 
 function updateBatchSelectionUI() {
@@ -322,8 +371,10 @@ function syncBatchToolbar() {
     batchToolbar.classList.toggle('hidden', !visible);
     batchCount.textContent = `已选择 ${count} 首`;
     batchCancelBtn.disabled = count === 0;
-    batchFavoriteBtn.hidden = state.currentTab === 'favorites' || isDownloadsTab;
-    batchFavoriteBtn.disabled = count === 0;
+    if (batchFavoriteBtn) {
+        batchFavoriteBtn.hidden = state.currentTab === 'favorites' || isDownloadsTab;
+        batchFavoriteBtn.disabled = count === 0;
+    }
     batchPlaylistBtn.disabled = count === 0;
     batchDownloadBtn.hidden = false;
     batchDownloadBtn.textContent = isDownloadsTab ? '批量删除' : '本地下载';
@@ -382,7 +433,22 @@ function resolveLocalFilename(songId) {
     const localSong = state.localMusic.find(s => s.id === songId && s.filename);
     if (localSong) return localSong.filename;
 
+    if (song) {
+        const matchedByMeta = state.localMusic.find(localSong => {
+            return sameSongIdentity(localSong.title, song.title) && sameSongIdentity(localSong.artist, song.artist);
+        });
+        if (matchedByMeta && matchedByMeta.filename) return matchedByMeta.filename;
+    }
+
     return song ? songId : '';
+}
+
+function sameSongIdentity(a, b) {
+    const normalize = value => String(value || '')
+        .toLowerCase()
+        .replace(/[\s·•－—\-_/()（）\[\]【】,，.。！？!?'"“”‘’]+/g, '')
+        .trim();
+    return normalize(a) && normalize(a) === normalize(b);
 }
 
 // ─── 选项卡切换 ─────────────────────────────────────────
@@ -436,44 +502,21 @@ if (favoriteCurrentBtn) {
     });
 }
 
-if (commentCurrentBtn) {
-    commentCurrentBtn.addEventListener('click', () => {
-        toast('评论功能暂未接入');
-    });
-}
-
-if (lyricToggleBtn) {
-    lyricToggleBtn.addEventListener('click', () => {
-        document.querySelector('.lyric-tab[data-lyric-tab="lyrics"]')?.click();
-    });
-}
-
-if (moreBtn) {
-    moreBtn.addEventListener('click', openLibrary);
-}
-
-// ─── 搜索 ───────────────────────────────────────────────
-
-sourceToggles.forEach(btn => {
-    btn.addEventListener('click', () => {
-        const source = btn.dataset.source;
-        if (!source) return;
-
-        if (state.selectedSearchSources.has(source)) {
-            state.selectedSearchSources.delete(source);
-        } else {
-            state.selectedSearchSources.add(source);
-        }
-
-        const active = state.selectedSearchSources.has(source);
-        btn.classList.toggle('active', active);
-        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
+// 搜索
+searchBtn.addEventListener('click', () => {
+    clearTimeout(state.searchDebounceTimer);
+    doSearch();
 });
-
-searchBtn.addEventListener('click', doSearch);
 searchInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') doSearch();
+    if (e.key === 'Enter') {
+        clearTimeout(state.searchDebounceTimer);
+        doSearch();
+    }
+});
+searchInput.addEventListener('input', () => {
+    clearTimeout(state.searchDebounceTimer);
+    if (!searchInput.value.trim()) return;
+    state.searchDebounceTimer = setTimeout(() => doSearch({ silentEmpty: true }), 300);
 });
 
 if (batchCancelBtn) batchCancelBtn.addEventListener('click', clearBatchSelection);
@@ -489,22 +532,22 @@ if (batchDownloadBtn) {
     });
 }
 if (batchSelectAllBtn) batchSelectAllBtn.addEventListener('click', selectAllCurrentPage);
-if (exportBackupBtn) exportBackupBtn.addEventListener('click', exportBackup);
-if (importBackupBtn) importBackupBtn.addEventListener('click', openBackupPicker);
-if (backupFileInput) {
-    backupFileInput.addEventListener('change', () => {
-        const file = backupFileInput.files && backupFileInput.files[0];
-        if (file) importBackupFromFile(file);
-    });
+
+function setSearchLoading(isLoading) {
+    state.isSearching = isLoading;
+    searchInput.disabled = isLoading;
+    searchBtn.disabled = isLoading;
+    searchBtn.textContent = isLoading ? '搜索中' : '搜索';
 }
 
-async function doSearch() {
+async function doSearch(options = {}) {
     const q = searchInput.value.trim();
-    if (!q) return toast('请输入搜索关键词', true);
-    const sources = getSelectedSearchSources();
-    if (!sources.length) return toast('请至少选择一个搜索源', true);
+    if (!q) {
+        if (!options.silentEmpty) toast('请输入搜索关键词', true);
+        return;
+    }
+    if (state.isSearching) return;
 
-    // 切换到搜索结果标签
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
     document.querySelector('.tab[data-tab="search"]').classList.add('active');
@@ -513,12 +556,17 @@ async function doSearch() {
     clearBatchSelection();
 
     const container = $('searchResults');
-    container.innerHTML = '<div class="loading">搜索中</div>';
+    if (q === state.lastSearchKeyword) {
+        renderSearchResults();
+        return;
+    }
+
+    container.innerHTML = '<div class="loading">搜索中...</div>';
+    setSearchLoading(true);
 
     try {
         const params = new URLSearchParams({
             q,
-            sources: sources.join(','),
             source_limit: String(SEARCH_SOURCE_LIMIT),
         });
         const resp = await fetch(`/api/search?${params.toString()}`);
@@ -526,14 +574,16 @@ async function doSearch() {
         if (data.error) {
             container.innerHTML = `<div class="empty-state"><p>${data.error}</p></div>`;
             syncBatchToolbar();
-            syncBatchToolbar();
             return;
         }
         state.searchResults = data.results || [];
+        state.lastSearchKeyword = q;
         syncCachedSongFlags();
         renderSearchResults();
     } catch (err) {
         container.innerHTML = '<div class="empty-state"><p>搜索失败，请检查网络</p></div>';
+    } finally {
+        setSearchLoading(false);
     }
 }
 
@@ -698,8 +748,9 @@ function buildSongItem(song, options = {}) {
     const playIcon = isPlaying && state.isPlaying ? ICON.pause : ICON.play;
     const dlClass = song.downloaded ? 'downloaded' : '';
     const dlIcon = song.downloaded ? ICON.downloadDone : ICON.download;
-    const favClass = song.favorited ? 'favorited' : '';
-    const favIcon = song.favorited ? ICON.heart : ICON.heartOutline;
+    const favorited = isSongFavorited(song.id);
+    const favClass = favorited ? 'favorited' : '';
+    const favIcon = favorited ? ICON.heart : ICON.heartOutline;
     const removeFromPlaylistBtn = options.playlistId
         ? `<button class="remove-from-pl-btn" onclick="removeSongFromPlaylist('${options.playlistId}', '${song.id}')" title="从歌单移除">${ICON.minus}</button>`
         : '';
@@ -716,7 +767,7 @@ function buildSongItem(song, options = {}) {
             </div>
             <div class="song-actions">
                 <button class="play-btn-item ${isPlaying ? 'playing' : ''}" onclick="playSong('${song.id}')" title="播放">${playIcon}</button>
-                <button class="fav-btn ${favClass}" onclick="toggleFavorite('${song.id}')" title="${song.favorited ? '取消收藏' : '收藏'}">${favIcon}</button>
+                <button class="fav-btn ${favClass}" onclick="toggleFavorite('${song.id}')" title="${favorited ? '取消收藏' : '收藏'}">${favIcon}</button>
                 <button class="add-to-pl-btn" onclick="showAddToPlaylist('${song.id}')" title="加入歌单">${ICON.plus}</button>
                 <button class="dl-btn ${dlClass}" onclick="downloadSong('${song.id}')" title="${song.downloaded ? '已下载' : '下载'}">${dlIcon}</button>
                 ${removeFromPlaylistBtn}
@@ -731,6 +782,34 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+function releaseAudioIfDeletingFile(filename) {
+    if (!filename) return;
+
+    let currentFilename = state.currentSong?.filename || '';
+    if (!currentFilename && audio.currentSrc) {
+        try {
+            const url = new URL(audio.currentSrc);
+            if (url.pathname.startsWith('/api/stream/')) {
+                currentFilename = decodeURIComponent(url.pathname.split('/').pop() || '');
+            }
+        } catch {
+            currentFilename = '';
+        }
+    }
+
+    if (currentFilename !== filename) return;
+
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+    state.isPlaying = false;
+    state.currentSong = null;
+    playBtn.innerHTML = ICON.play;
+    equalizer.classList.add('paused');
+    updatePlayButtons();
+    syncImmersivePlayerUI();
+}
+
 // ─── 删除本地音乐 ──────────────────────────────────────
 
 async function deleteLocalSong(songId) {
@@ -738,7 +817,12 @@ async function deleteLocalSong(songId) {
     const song = findSongInState(songId);
     const songName = song ? (song.title || '未知歌曲') : '这首歌';
 
-    if (!confirm(`确定要删除本地文件「${songName}」吗？\n删除后如需再次播放需要重新下载。`)) {
+    const confirmed = await showDeleteConfirm({
+        title: '删除本地歌曲',
+        message: `确定删除本地文件「${songName}」吗？\n删除后如需再次播放，需要重新下载。`,
+        confirmText: '确认删除',
+    });
+    if (!confirmed) {
         return;
     }
 
@@ -757,31 +841,43 @@ async function deleteLocalSong(songId) {
         filename = localSong ? localSong.filename : songId;
     }
 
+    releaseAudioIfDeletingFile(filename);
+
+    let data;
     try {
         const resp = await fetch(`/api/music/${encodeURIComponent(filename)}`, {
             method: 'DELETE',
         });
-        const data = await resp.json();
-        if (data.success) {
-            toast('已删除本地文件');
-            syncSongRemovedFromCaches(songId);
-            await Promise.all([loadFavorites(), loadDownloads(), loadPlaylists()]);
-            refreshCurrentTab();
-        } else {
-            toast(data.error || '删除失败', true);
-        }
+        data = await resp.json();
     } catch {
         toast('删除请求失败', true);
+        return;
+    }
+
+    if (!data.success) {
+        toast(data.error || '删除失败', true);
+        return;
+    }
+
+    toast('已删除本地文件');
+    try {
+        syncSongRemovedFromCaches(songId, filename, song?.title, song?.artist);
+        await Promise.all([loadFavorites(), loadDownloads(), loadPlaylists()]);
+        refreshCurrentTab();
+    } catch {
+        // 删除已成功，刷新失败不回滚文件删除结果
     }
 }
 
 // ─── 播放控制 ───────────────────────────────────────────
 
-async function deleteLocalSongSilently(songId) {
-    const filename = resolveLocalFilename(songId);
-    if (!filename) return false;
+async function deleteLocalSongSilently(songId, filename = '') {
+    const targetFilename = filename || resolveLocalFilename(songId);
+    if (!targetFilename) return false;
 
-    const resp = await fetch(`/api/music/${encodeURIComponent(filename)}`, {
+    releaseAudioIfDeletingFile(targetFilename);
+
+    const resp = await fetch(`/api/music/${encodeURIComponent(targetFilename)}`, {
         method: 'DELETE',
     });
     const data = await resp.json();
@@ -814,8 +910,13 @@ async function playSong(songId) {
         audioUrl = `/api/stream/${encodeURIComponent(song.filename)}`;
     } else if (song.url) {
         // 如果是在线结果，先补全直链再代理播放
+        renderLyrics({ ...song, lyrics: [{ time: 0, text: '正在加载网易云歌词...' }] });
         const hydrated = await loadOnlineSongInfo(song);
-        if (!hydrated) return;
+        if (!hydrated) {
+            toast('无法获取网易云播放地址', true);
+            syncImmersivePlayerUI();
+            return;
+        }
         song = hydrated.song;
         state.currentSong = song;
         audioUrl = hydrated.audioUrl;
@@ -893,13 +994,27 @@ function resolvePlayableSong(songId) {
     return null;
 }
 
+function normalizePlaylistSong(songOrId) {
+    if (songOrId && typeof songOrId === 'object' && !Array.isArray(songOrId)) {
+        const resolved = songOrId.id ? resolvePlayableSong(songOrId.id) : null;
+        return {
+            ...(resolved || {}),
+            ...songOrId,
+            id: songOrId.id || resolved?.id || '',
+            title: songOrId.title || resolved?.title || '未知歌曲',
+            artist: songOrId.artist || resolved?.artist || '未知歌手',
+        };
+    }
+    return resolvePlayableSong(songOrId) || { id: songOrId, title: '未知歌曲', artist: '未知歌手' };
+}
+
 function syncQueueForSong(songId) {
     let queue = null;
 
     if (state.currentTab === 'playlist-detail' && state.currentPlaylistDetailId) {
         const pl = state.playlists.find(p => p.id === state.currentPlaylistDetailId);
         if (pl?.songs?.length) {
-            queue = pl.songs.map(id => resolvePlayableSong(id)).filter(Boolean);
+            queue = pl.songs.map(normalizePlaylistSong).filter(song => song && song.id);
         }
     } else if (state.currentTab === 'search' && state.searchResults.length) {
         queue = state.searchResults.slice();
@@ -1278,14 +1393,16 @@ async function downloadSong(songId, options = {}) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 url: downloadUrl,
+                source_url: song.source_url || song.url || downloadUrl,
                 title: song.title,
+                artist: song.artist,
             }),
         });
         const data = await resp.json();
         if (data.success) {
             if (!quiet) toast('下载完成 ✅');
+            if (data.filename) song.filename = data.filename;
             song.downloaded = true;
-            song.filename = data.filename;
             if (!quiet) {
                 await loadDownloads();
                 syncCachedSongFlags();
@@ -1307,13 +1424,21 @@ async function toggleFavorite(songId) {
     const song = findSongInState(songId);
     if (!song) return toast('找不到歌曲', true);
 
-    if (song.favorited) {
+    const favorited = isSongFavorited(songId);
+
+    if (favorited) {
         try {
-            await fetch('/api/favorites', {
+            const resp = await fetch('/api/favorites', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: songId }),
             });
+            const data = await resp.json();
+            if (!data.success) {
+                toast(data.error || '鎿嶄綔澶辫触', true);
+                return;
+            }
+            state.favorites = state.favorites.filter(f => f.id !== songId);
             song.favorited = false;
             toast('已取消收藏');
         } catch {
@@ -1321,7 +1446,7 @@ async function toggleFavorite(songId) {
         }
     } else {
         try {
-            await fetch('/api/favorites', {
+            const resp = await fetch('/api/favorites', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -1333,12 +1458,28 @@ async function toggleFavorite(songId) {
                     downloaded: song.downloaded || false,
                 }),
             });
+            const data = await resp.json();
+            if (!data.success) {
+                toast(data.error || '鎿嶄綔澶辫触', true);
+                return;
+            }
+            if (!state.favorites.some(f => f.id === songId)) {
+                state.favorites = state.favorites.concat(data.favorite || {
+                    id: song.id,
+                    title: song.title,
+                    artist: song.artist,
+                    url: song.url || '',
+                    filename: song.filename || '',
+                    downloaded: song.downloaded || false,
+                });
+            }
             song.favorited = true;
             toast('已收藏 ♥');
         } catch {
             toast('操作失败', true);
         }
     }
+    syncCachedSongFlags();
     refreshCurrentTab();
 }
 
@@ -1367,6 +1508,27 @@ $('cancelPlaylistBtn').addEventListener('click', () => {
     $('playlistModal').style.display = 'none';
 });
 
+cancelDeleteConfirmBtn?.addEventListener('click', () => {
+    closeDeleteConfirm(false);
+});
+
+confirmDeleteConfirmBtn?.addEventListener('click', () => {
+    closeDeleteConfirm(true);
+});
+
+deleteConfirmModal?.addEventListener('click', e => {
+    if (e.target === deleteConfirmModal) {
+        closeDeleteConfirm(false);
+    }
+});
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && deleteConfirmResolver) {
+        e.preventDefault();
+        closeDeleteConfirm(false);
+    }
+});
+
 $('confirmPlaylistBtn').addEventListener('click', async () => {
     const name = $('playlistNameInput').value.trim();
     if (!name) return toast('请输入歌单名称', true);
@@ -1389,7 +1551,13 @@ $('confirmPlaylistBtn').addEventListener('click', async () => {
 });
 
 async function deletePlaylist(plId) {
-    if (!confirm('确定要删除这个歌单吗？')) return;
+    const playlist = state.playlists.find(item => item.id === plId);
+    const confirmed = await showDeleteConfirm({
+        title: '删除歌单',
+        message: `确定删除歌单「${playlist?.name || '当前歌单'}」吗？\n歌单里的歌曲不会被一起删除。`,
+        confirmText: '确认删除',
+    });
+    if (!confirmed) return;
     try {
         await fetch(`/api/playlists/${plId}`, { method: 'DELETE' });
         toast('歌单已删除');
@@ -1419,11 +1587,15 @@ async function showPlaylistDetail(plId) {
     const header = document.querySelector('.playlist-detail-header');
     header.innerHTML = `
         <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
-        <h2>📁 ${escapeHtml(pl.name)}</h2>
-        <span class="song-count">${pl.songs.length} 首</span>
-        <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">▶ 播放全部</button>
-        <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">+ 添加歌曲</button>
-        <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">🗑 删除</button>
+        <div class="playlist-detail-info">
+            <h2>📁 ${escapeHtml(pl.name)}</h2>
+            <span class="song-count">${pl.songs.length} 首</span>
+        </div>
+        <div class="playlist-detail-actions">
+            <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">▶ 播放全部</button>
+            <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">+ 添加歌曲</button>
+            <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">🗑 删除</button>
+        </div>
     `;
 
     const container = $('playlistDetailSongs');
@@ -1517,11 +1689,17 @@ async function addSongToPlaylist(plId) {
     }
 }
 
-function syncSongRemovedFromCaches(songId) {
+function syncSongRemovedFromCaches(songId, filename = '', title = '', artist = '') {
+    const targetTitle = title;
+    const targetArtist = artist;
     const lists = [state.searchResults, state.localMusic, state.favorites, state.queue];
     for (const list of lists) {
         for (const song of list) {
-            if (song && song.id === songId) {
+            if (!song) continue;
+            const sameMeta = targetTitle && targetArtist
+                ? sameSongIdentity(song.title, targetTitle) && sameSongIdentity(song.artist, targetArtist)
+                : false;
+            if (song.id === songId || song.filename === songId || song.filename === filename || sameMeta) {
                 song.downloaded = false;
                 song.filename = '';
                 song.favorited = false;
@@ -1613,7 +1791,12 @@ async function batchDeleteLocalSongs() {
         });
 
     if (!songs.length) return toast('选中的歌曲都不在本地', true);
-    if (!confirm(`确定删除选中的 ${songs.length} 首本地歌曲吗？\n删除后需要重新下载才能播放。`)) {
+    const confirmed = await showDeleteConfirm({
+        title: '批量删除本地歌曲',
+        message: `确定删除选中的 ${songs.length} 首本地歌曲吗？\n删除后需要重新下载才能播放。`,
+        confirmText: `删除 ${songs.length} 首`,
+    });
+    if (!confirmed) {
         return;
     }
 
@@ -1622,10 +1805,10 @@ async function batchDeleteLocalSongs() {
     try {
         for (const song of songs) {
             try {
-                const ok = await deleteLocalSongSilently(song.id);
+                const ok = await deleteLocalSongSilently(song.id, song.filename);
                 if (ok) {
                     deleted++;
-                    syncSongRemovedFromCaches(song.id);
+                    syncSongRemovedFromCaches(song.id, song.filename, song.title, song.artist);
                 } else {
                     failed++;
                 }
@@ -1650,70 +1833,6 @@ async function batchDeleteLocalSongs() {
     } catch (err) {
         toast(err.message || '批量删除失败', true);
     }
-}
-
-function downloadJsonFile(filename, payload) {
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: 'application/json;charset=utf-8',
-    });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(link.href);
-}
-
-async function exportBackup() {
-    try {
-        const resp = await fetch('/api/backup');
-        const data = await resp.json();
-        if (data.error) return toast(data.error, true);
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        downloadJsonFile(`music-backup-${stamp}.json`, data);
-        toast('备份已导出');
-    } catch {
-        toast('导出失败', true);
-    }
-}
-
-async function importBackupFromFile(file) {
-    if (!file) return;
-
-    let payload;
-    try {
-        payload = JSON.parse(await file.text());
-    } catch {
-        return toast('JSON 解析失败', true);
-    }
-
-    try {
-        const resp = await fetch('/api/backup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
-        if (!resp.ok || data.error) {
-            return toast(data.error || '导入失败', true);
-        }
-
-        await Promise.all([loadFavorites(), loadDownloads(), loadPlaylists()]);
-        clearBatchSelection();
-        refreshCurrentTab();
-
-        const summary = data.summary || {};
-        toast(`导入完成：收藏 +${summary.favorites_added || 0}，歌单 +${summary.playlists_added || 0}`);
-    } catch {
-        toast('导入失败', true);
-    }
-}
-
-function openBackupPicker() {
-    if (!backupFileInput) return;
-    backupFileInput.value = '';
-    backupFileInput.click();
 }
 
 // ─── 我的歌单标签页 ─────────────────────────────────────
@@ -1994,6 +2113,120 @@ async function restorePlaybackState() {
 }
 
 // ─── 初始化 ─────────────────────────────────────────────
+
+async function showPlaylistDetail(plId) {
+    const pl = state.playlists.find(p => p.id === plId);
+    if (!pl) return;
+
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+    $('tab-playlist-detail').classList.add('active');
+    state.currentTab = 'playlist-detail';
+    state.currentPlaylistDetailId = plId;
+
+    const header = document.querySelector('.playlist-detail-header');
+    header.innerHTML = `
+        <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
+        <div class="playlist-detail-info">
+            <h2>📁 ${escapeHtml(pl.name)}</h2>
+            <span class="song-count">${pl.songs.length} 首</span>
+        </div>
+        <div class="playlist-detail-actions">
+            <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">▶ 播放全部</button>
+            <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">+ 添加歌曲</button>
+            <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">🗑 删除</button>
+        </div>
+    `;
+
+    const container = $('playlistDetailSongs');
+    if (!pl.songs.length) {
+        container.innerHTML = '<div class="empty-state"><p>歌单还没有歌曲</p><p class="hint">在歌曲上点击 📋 添加到歌单</p></div>';
+        return;
+    }
+
+    const detailSongs = pl.songs.map(normalizePlaylistSong).filter(song => song && song.id);
+    container.innerHTML = detailSongs.map(song => buildSongItem(song, { playlistId: pl.id })).join('');
+}
+
+async function addSongToPlaylist(plId) {
+    if (!addToPlSongIds.length) return;
+
+    try {
+        const pl = state.playlists.find(p => p.id === plId);
+        if (!pl) return;
+        const nextSongs = (pl.songs || []).map(normalizePlaylistSong).filter(song => song && song.id);
+        for (const songId of addToPlSongIds) {
+            const song = findSongInState(songId);
+            if (!song || nextSongs.some(existing => existing.id === song.id)) continue;
+            nextSongs.push({ ...song });
+        }
+        const resp = await fetch(`/api/playlists/${plId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ songs: nextSongs }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            toast('已添加到歌单');
+            document.getElementById('addToPlOverlay')?.remove();
+            await loadPlaylists();
+        }
+    } catch {
+        toast('添加失败', true);
+    }
+}
+
+async function confirmAddSongsToPlaylist(plId) {
+    const checked = document.querySelectorAll('#addSongsOverlay input[type="checkbox"]:checked');
+    if (!checked.length) return toast('请选择要添加的歌曲');
+
+    const songIds = Array.from(checked).map(cb => cb.value);
+    const pl = state.playlists.find(p => p.id === plId);
+    if (!pl) return;
+
+    const nextSongs = (pl.songs || []).map(normalizePlaylistSong).filter(song => song && song.id);
+    let added = 0;
+    for (const songId of songIds) {
+        const song = findSongInState(songId);
+        if (!song || nextSongs.some(existing => existing.id === song.id)) continue;
+        nextSongs.push({ ...song });
+        added++;
+    }
+
+    try {
+        const resp = await fetch(`/api/playlists/${plId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ songs: nextSongs }),
+        });
+        const data = await resp.json();
+        if (data.success) {
+            toast(`已添加 ${added} 首歌曲到歌单`);
+            document.getElementById('addSongsOverlay')?.remove();
+            await loadPlaylists();
+            showPlaylistDetail(plId);
+        }
+    } catch {
+        toast('添加失败', true);
+    }
+}
+
+function playPlaylist(plId) {
+    const pl = state.playlists.find(p => p.id === plId);
+    if (!pl || !pl.songs.length) return toast('歌单是空的', true);
+
+    const playlistSongs = pl.songs
+        .map(normalizePlaylistSong)
+        .filter(song => song && song.id && (song.url || song.mp3_url || song.filename));
+
+    if (!playlistSongs.length) return toast('歌单没有可播放的歌曲', true);
+
+    state.queue = playlistSongs;
+    state.queueIndex = 0;
+    state.currentSong = null;
+    playSong(playlistSongs[0].id);
+    toast(`正在播放歌单《${pl.name}》`);
+}
 
 async function init() {
     await loadPlaylists();

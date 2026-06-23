@@ -1,5 +1,8 @@
+import json
+import os
 import unittest
-from unittest.mock import patch
+import tempfile
+from unittest.mock import mock_open, patch
 
 import requests
 
@@ -20,6 +23,24 @@ class FakeResponse:
 class QjjlbResilienceTests(unittest.TestCase):
     def setUp(self):
         app._search_cache.clear()
+
+    def test_fetch_musicbox_json_returns_friendly_message_when_connection_is_denied(self):
+        class FakeSession:
+            def get(self, url, params=None, timeout=None):
+                raise requests.ConnectionError(
+                    'HTTPSConnectionPool(host="blocked.example", port=443): '
+                    'Max retries exceeded with url: / '
+                    '(Caused by NewConnectionError('
+                    '"HTTPSConnection(host=\\"blocked.example\\", port=443): '
+                    'Failed to establish a new connection: '
+                    '[WinError 10013] access denied"))'
+                )
+
+        with patch.object(app, 'get_musicbox_session', return_value=FakeSession()):
+            data, err = app.fetch_musicbox_json('https://blocked.example/api')
+
+        self.assertIsNone(data)
+        self.assertEqual(err, 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试')
 
     def test_fetch_qjjlb_json_retries_once_after_connection_error(self):
         calls = {'count': 0}
@@ -42,7 +63,7 @@ class QjjlbResilienceTests(unittest.TestCase):
         with patch.object(app, 'search_qjjlb_qq', return_value=(None, 'qq source failed')), \
              patch.object(app, 'search_qjjlb_kuwo', return_value=([{'id': 'kuwo-1'}], None)), \
              patch.object(app, 'search_qjjlb_netease', return_value=([], None)):
-            results = app.search_qjjlb('起风了', limit=10)
+            results = app.search_qjjlb('起风了', limit=10, source_names=['qq', 'kuwo', 'netease'])
 
         self.assertIsInstance(results, list)
         self.assertEqual(results, [{'id': 'kuwo-1'}])
@@ -67,6 +88,258 @@ class QjjlbResilienceTests(unittest.TestCase):
 
         self.assertEqual(qq_results, [{'id': 'qq-1'}])
         self.assertEqual(kuwo_results, [{'id': 'kuwo-1'}])
+
+    def test_search_qjjlb_defaults_to_qq_only(self):
+        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'qq-1'}], None)) as qq, \
+             patch.object(app, 'search_qjjlb_kuwo', return_value=([{'id': 'kuwo-1'}], None)) as kuwo, \
+             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)) as netease:
+            results = app.search_qjjlb('test-default-source', limit=1)
+
+        self.assertEqual(results, [{'id': 'qq-1'}])
+        qq.assert_called_once_with('test-default-source', 20)
+        kuwo.assert_not_called()
+        netease.assert_not_called()
+
+    def test_api_search_uses_qq_only(self):
+        client = app.app.test_client()
+
+        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'qq-1'}], None)) as qq, \
+             patch.object(app, 'search_qjjlb_kuwo', return_value=([{'id': 'kuwo-1'}], None)) as kuwo, \
+             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)) as netease, \
+             patch.object(app, 'get_local_music', return_value=[]), \
+             patch.object(app, 'get_favorites_map', return_value={}):
+            resp = client.get('/api/search', query_string={'q': 'test-api-search', 'source_limit': '20'})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()['results'], [{'id': 'qq-1', 'downloaded': False, 'favorited': False}])
+        qq.assert_called_once_with('test-api-search', 20)
+        kuwo.assert_not_called()
+        netease.assert_not_called()
+
+    def test_api_search_returns_friendly_error_without_502_status(self):
+        client = app.app.test_client()
+
+        with patch.object(
+            app,
+            'search_qjjlb',
+            return_value=({'error': 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试'}, 502),
+        ):
+            resp = client.get('/api/search', query_string={'q': 'blocked-search', 'source_limit': '20'})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.get_json(),
+            {'error': 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试'},
+        )
+
+    def test_api_download_falls_back_to_source_url(self):
+        client = app.app.test_client()
+
+        class DownloadResponse:
+            def raise_for_status(self):
+                return None
+
+            def iter_content(self, chunk_size=8192):
+                yield b'fake-mp3-bytes'
+
+        def fake_extract_mp3_url(song_url):
+            if song_url == 'https://legacy.example.test/song.html':
+                return None, '该歌曲链接已不再支持，请重新搜索'
+            if song_url == 'qjjlb://netease?id=1394167216':
+                return 'https://audio.example.test/song.mp3', None
+            self.fail(f'unexpected song url: {song_url}')
+
+        def fake_requests_get(url, headers=None, stream=None, timeout=None):
+            self.assertEqual(url, 'https://audio.example.test/song.mp3')
+            self.assertTrue(stream)
+            self.assertEqual(timeout, 60)
+            return DownloadResponse()
+
+        with patch.object(app, 'extract_mp3_url', side_effect=fake_extract_mp3_url), \
+             patch.object(app.requests, 'get', side_effect=fake_requests_get), \
+             patch.object(app.os, 'makedirs') as makedirs_mock, \
+             patch('builtins.open', mock_open()):
+            resp = client.post('/api/download', json={
+                'url': 'https://legacy.example.test/song.html',
+                'source_url': 'qjjlb://netease?id=1394167216',
+                'title': '知我',
+            })
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data['success'])
+        self.assertTrue(data['filename'].endswith('.mp3'))
+        makedirs_mock.assert_called_once()
+
+    def test_api_download_skips_when_existing_file_matches_source_url(self):
+        client = app.app.test_client()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            existing_filename = '15-LOVE_1700000000.mp3'
+            existing_path = os.path.join(music_dir, existing_filename)
+            with open(existing_path, 'wb') as f:
+                f.write(b'fake-mp3')
+
+            download_index_path = os.path.join(tmpdir, 'downloads.json')
+            with open(download_index_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'source_url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                    'resolved_url': 'https://audio.example.test/song.mp3',
+                    'title': 'LOVE',
+                    'artist': '15',
+                    'filename': existing_filename,
+                }], f, ensure_ascii=False, indent=2)
+
+            with patch.object(app, 'BASE_DIR', tmpdir), \
+                 patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path), \
+                 patch.object(app.requests, 'get', side_effect=AssertionError('download should be skipped')):
+                resp = client.post('/api/download', json={
+                    'url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                    'source_url': 'https://legacy.example.test/song.html',
+                    'title': 'LOVE',
+                    'artist': '15',
+                })
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data['success'])
+        self.assertTrue(data.get('skipped'))
+        self.assertEqual(data['filename'], existing_filename)
+
+    def test_api_download_skips_when_existing_file_matches_title_and_artist(self):
+        client = app.app.test_client()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            existing_filename = '15-LOVE_1700000000.mp3'
+            existing_path = os.path.join(music_dir, existing_filename)
+            with open(existing_path, 'wb') as f:
+                f.write(b'fake-mp3')
+
+            with patch.object(app, 'BASE_DIR', tmpdir), \
+                 patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app.requests, 'get', side_effect=AssertionError('download should be skipped')):
+                resp = client.post('/api/download', json={
+                    'url': 'https://legacy.example.test/song.html',
+                    'source_url': 'https://legacy.example.test/song.html',
+                    'title': 'LOVE',
+                    'artist': '15',
+                })
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertTrue(data['success'])
+        self.assertTrue(data.get('skipped'))
+        self.assertEqual(data['filename'], existing_filename)
+
+    def test_api_delete_music_returns_success_after_removing_file(self):
+        client = app.app.test_client()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            filename = 'LOVE_1700000000.mp3'
+            with open(os.path.join(music_dir, filename), 'wb') as f:
+                f.write(b'fake-mp3')
+
+            download_index_path = os.path.join(tmpdir, 'downloads.json')
+            with open(download_index_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'filename': filename,
+                    'title': 'LOVE',
+                    'artist': '15',
+                    'song_url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                    'source_url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                    'resolved_url': 'https://audio.example.test/song.mp3',
+                }], f, ensure_ascii=False, indent=2)
+
+            favorites_path = os.path.join(tmpdir, 'favorites.json')
+            with open(favorites_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'id': filename,
+                    'title': 'LOVE',
+                    'artist': '15',
+                    'filename': filename,
+                }], f, ensure_ascii=False, indent=2)
+
+            playlists_path = os.path.join(tmpdir, 'playlists.json')
+            with open(playlists_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'id': 'pl-1',
+                    'name': 'test',
+                    'songs': [filename],
+                }], f, ensure_ascii=False, indent=2)
+
+            with patch.object(app, 'BASE_DIR', tmpdir), \
+                 patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path), \
+                 patch.object(app, 'FAVORITES_FILE', favorites_path), \
+                 patch.object(app, 'PLAYLISTS_FILE', playlists_path):
+                resp = client.delete(f'/api/music/{filename}')
+
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.get_json()['success'], True)
+            self.assertFalse(os.path.exists(os.path.join(music_dir, filename)))
+
+            with open(download_index_path, 'r', encoding='utf-8') as f:
+                self.assertEqual(json.load(f), [])
+
+    def test_api_search_marks_downloaded_when_local_file_matches_title_and_artist(self):
+        client = app.app.test_client()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            existing_filename = '15-LOVE_1700000000.mp3'
+            with open(os.path.join(music_dir, existing_filename), 'wb') as f:
+                f.write(b'fake-mp3')
+
+            with patch.object(app, 'BASE_DIR', tmpdir), \
+                 patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'get_favorites_map', return_value={}), \
+                 patch.object(app, 'search_qjjlb', return_value=[{
+                     'id': 'upstream-song-id',
+                     'title': 'LOVE',
+                     'artist': '15',
+                     'url': 'https://legacy.example.test/song.html',
+                     'source_url': 'https://legacy.example.test/song.html',
+                 }]):
+                resp = client.get('/api/search', query_string={'q': 'LOVE', 'source_limit': '20'})
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(len(data['results']), 1)
+        self.assertTrue(data['results'][0]['downloaded'])
+        self.assertEqual(data['results'][0]['filename'], existing_filename)
+
+    def test_api_update_playlist_removes_song_by_id_from_object_entries(self):
+        client = app.app.test_client()
+        playlist_id = 'playlist-1'
+        song_entry = {
+            'id': 'qq-1',
+            'title': '15-LOVE',
+            'artist': 'Hearts2Hearts',
+            'url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+        }
+        playlists = [{
+            'id': playlist_id,
+            'name': '111',
+            'songs': [song_entry],
+            'created_at': '2026-06-23T11:20:19.814348',
+        }]
+
+        with patch.object(app, 'read_json', return_value=playlists), \
+             patch.object(app, 'write_json') as write_json_mock:
+            resp = client.put(f'/api/playlists/{playlist_id}', json={'remove_song': 'qq-1'})
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(data['playlist']['songs'], [])
+        write_json_mock.assert_called_once()
 
     def test_search_qjjlb_netease_paginates_to_fill_requested_limit(self):
         first_page = [{'id': f'netease-{i}'} for i in range(1, 11)]
@@ -105,14 +378,6 @@ class QjjlbResilienceTests(unittest.TestCase):
 
         self.assertIsNone(err)
         self.assertEqual(len(results), 10)
-
-    def test_api_search_rejects_invalid_source(self):
-        client = app.app.test_client()
-
-        resp = client.get('/api/search?q=test&sources=qq,bad-source')
-
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('error', resp.get_json())
 
     def test_extract_song_id_handles_music_163_hash_urls(self):
         song_url = 'http://music.163.com/#/song?id=185726'

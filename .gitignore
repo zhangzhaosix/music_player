@@ -4,5 +4,6 @@ __pycache__/
 .claude/
 .superpowers/
 server_log.txt
+tmp-server*.log
 闇€瑕佷笂浼犺嚦github/
 .env
