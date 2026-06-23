@@ -16,6 +16,7 @@ const state = {
     isBatchMode: false,
     currentPlaylistDetailId: null,
     currentLyricIndex: -1,
+    currentLyricsKey: '',
     isSearching: false,
     lastSearchKeyword: '',
     searchDebounceTimer: null,
@@ -212,8 +213,15 @@ function getLyricEntries(song) {
 
 function renderLyrics(song) {
     if (!lyricsList) return;
-    state.currentLyricIndex = -1;
     const lyricEntries = getLyricEntries(song);
+    const lyricsKey = JSON.stringify([
+        song ? (song.id || song.url || song.filename || '') : '',
+        hasRealLyrics(song),
+        lyricEntries.map(line => [line.time ?? '', line.text]),
+    ]);
+    if (state.currentLyricsKey === lyricsKey) return;
+    state.currentLyricsKey = lyricsKey;
+    state.currentLyricIndex = -1;
     const fallbackNotice = song && !hasRealLyrics(song)
         ? '<p class="lyric-note">暂无真实歌词，已显示占位歌词。</p>'
         : '';
@@ -924,10 +932,14 @@ async function playSong(songId) {
     // 构建播放 URL
     let audioUrl;
     if (song.downloaded && song.filename) {
-        audioUrl = `/api/stream/${encodeURIComponent(song.filename)}`;
+        const hydrated = await loadOnlineSongInfo(song);
+        song = hydrated.song || song;
+        state.currentSong = song;
+        audioUrl = hydrated.audioUrl || `/api/stream/${encodeURIComponent(song.filename)}`;
+        syncImmersivePlayerUI();
     } else if (song.url) {
         // 如果是在线结果，先补全直链再代理播放
-        renderLyrics({ ...song, lyrics: [{ time: 0, text: '正在加载网易云歌词...' }] });
+        renderLyrics({ ...song, lyrics: [{ time: 0, text: '正在加载歌词...' }] });
         const hydrated = await loadOnlineSongInfo(song);
         if (!hydrated) {
             toast('无法获取网易云播放地址', true);
@@ -1067,7 +1079,7 @@ async function getProxyUrl(songUrl) {
         const resp = await fetch(`/api/song-info?url=${encodeURIComponent(songUrl)}`);
         const data = await resp.json();
         if (data.mp3_url) {
-            return `/api/proxy-stream?url=${encodeURIComponent(data.mp3_url)}`;
+            return getAudioUrl(data.mp3_url);
         }
         if (data.error) toast(data.error, true);
         return null;
@@ -1075,6 +1087,13 @@ async function getProxyUrl(songUrl) {
         toast('获取播放链接失败', true);
         return null;
     }
+}
+
+function getAudioUrl(mp3Url) {
+    const url = String(mp3Url || '');
+    if (!url) return '';
+    if (url.startsWith('/api/stream/')) return url;
+    return "/api/proxy-stream?url=" + encodeURIComponent(url);
 }
 
 async function fetchOnlineSongInfo(songUrl, song = null) {
@@ -1124,8 +1143,10 @@ async function loadOnlineSongInfo(song) {
     }
 
     if (song.downloaded && song.filename) {
+        const infoSourceUrl = song.source_url || song.url;
+        const info = infoSourceUrl ? await fetchOnlineSongInfo(infoSourceUrl, song) : null;
         return {
-            song,
+            song: mergeSongInfo(song, info || song),
             audioUrl: "/api/stream/" + encodeURIComponent(song.filename),
         };
     }
@@ -1143,7 +1164,7 @@ async function loadOnlineSongInfo(song) {
                 cover_url: song.cover_url,
                 lyrics: song.lyrics,
             }),
-            audioUrl: "/api/proxy-stream?url=" + encodeURIComponent(directMp3Url),
+            audioUrl: getAudioUrl(directMp3Url),
         };
     }
     if (!song.url) {
@@ -1158,7 +1179,7 @@ async function loadOnlineSongInfo(song) {
 
     return {
         song: mergeSongInfo(song, info),
-        audioUrl: "/api/proxy-stream?url=" + encodeURIComponent(info.mp3_url),
+        audioUrl: getAudioUrl(info.mp3_url),
     };
 }
 
@@ -2081,7 +2102,11 @@ async function restorePlaybackState() {
     // 构建播放 URL
     let audioUrl;
     if (song.downloaded && song.filename) {
-        audioUrl = `/api/stream/${encodeURIComponent(song.filename)}`;
+        const hydrated = await loadOnlineSongInfo(song);
+        song = hydrated.song || song;
+        state.currentSong = song;
+        audioUrl = hydrated.audioUrl || `/api/stream/${encodeURIComponent(song.filename)}`;
+        syncImmersivePlayerUI();
     } else if (song.url) {
         const hydrated = await loadOnlineSongInfo(song);
         if (!hydrated) {

@@ -154,6 +154,18 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(data['results'][0]['filename'], existing_filename)
         self.assertTrue(data['results'][0]['downloaded'])
 
+    def test_parse_lrc_text_keeps_each_timestamp_on_repeated_line(self):
+        lyrics = app.parse_lrc_text('[00:01.00][00:02.50]Hello\n[00:03.00]World')
+
+        self.assertEqual(
+            lyrics,
+            [
+                {'time': 1.0, 'text': 'Hello'},
+                {'time': 2.5, 'text': 'Hello'},
+                {'time': 3.0, 'text': 'World'},
+            ],
+        )
+
     def test_api_favorites_hydrates_downloaded_song_after_reload(self):
         client = app.app.test_client()
 
@@ -382,6 +394,53 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertTrue(data['downloaded'])
         self.assertEqual(data['filename'], existing_filename)
         self.assertEqual(data['mp3_url'], f'/api/stream/{existing_filename}')
+
+    def test_api_song_info_keeps_local_playback_and_merges_lyrics(self):
+        client = app.app.test_client()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            existing_filename = '15-LOVE_1700000000.mp3'
+            with open(os.path.join(music_dir, existing_filename), 'wb') as f:
+                f.write(b'fake-mp3')
+
+            download_index_path = os.path.join(tmpdir, 'downloads.json')
+            with open(download_index_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'filename': existing_filename,
+                    'title': 'LOVE',
+                    'artist': '15',
+                    'song_url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                    'source_url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                    'resolved_url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                }], f, ensure_ascii=False, indent=2)
+
+            with patch.object(app, 'BASE_DIR', tmpdir), \
+                 patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path), \
+                 patch.object(app, 'get_song_info', return_value=({
+                     'title': 'LOVE',
+                     'artist': '15',
+                     'mp3_url': 'https://audio.example.test/love.mp3',
+                     'source_url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                     'cover_url': 'https://img.example.test/love.jpg',
+                     'lyric_id': '0031Yimn3CnJFa',
+                     'lyrics': [{'time': 1.0, 'text': 'real lyric'}],
+                 }, None)):
+                resp = client.get('/api/song-info', query_string={
+                    'url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
+                    'title': 'LOVE',
+                    'artist': '15',
+                })
+
+        data = resp.get_json()
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(data['downloaded'])
+        self.assertEqual(data['filename'], existing_filename)
+        self.assertEqual(data['mp3_url'], f'/api/stream/{existing_filename}')
+        self.assertEqual(data['cover_url'], 'https://img.example.test/love.jpg')
+        self.assertEqual(data['lyrics'], [{'time': 1.0, 'text': 'real lyric'}])
 
     def test_api_delete_music_returns_success_after_removing_file(self):
         client = app.app.test_client()

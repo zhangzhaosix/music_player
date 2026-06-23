@@ -130,21 +130,21 @@ def parse_lrc_text(lrc_text):
         if not text or not timestamps:
             continue
 
-        match = timestamps[-1]
-        minutes = int(match.group(1))
-        seconds = int(match.group(2))
-        fraction = match.group(3) or '0'
-        try:
-            milliseconds = int((fraction + '000')[:3])
-        except ValueError:
-            milliseconds = 0
+        for match in timestamps:
+            minutes = int(match.group(1))
+            seconds = int(match.group(2))
+            fraction = match.group(3) or '0'
+            try:
+                milliseconds = int((fraction + '000')[:3])
+            except ValueError:
+                milliseconds = 0
 
-        lyrics.append({
-            'time': minutes * 60 + seconds + (milliseconds / 1000.0),
-            'text': text,
-        })
+            lyrics.append({
+                'time': minutes * 60 + seconds + (milliseconds / 1000.0),
+                'text': text,
+            })
 
-    return lyrics
+    return sorted(lyrics, key=lambda item: item['time'])
 
 
 def build_qjjlb_ref(provider, **params):
@@ -1218,7 +1218,7 @@ def api_song_info():
 
     existing_filename = find_existing_downloaded_song(url, url, title, artist)
     if existing_filename:
-        return jsonify({
+        local_info = {
             'title': title or os.path.splitext(existing_filename)[0],
             'artist': artist,
             'mp3_url': local_stream_url(existing_filename),
@@ -1228,7 +1228,20 @@ def api_song_info():
             'cover_url': '',
             'lyric_id': '',
             'lyrics': [],
-        })
+        }
+        try:
+            online_info, online_err = get_song_info(url)
+        except Exception:
+            online_info, online_err = None, '无法获取在线歌词'
+        if isinstance(online_info, dict) and not online_err:
+            local_info['title'] = online_info.get('title') or local_info['title']
+            local_info['artist'] = online_info.get('artist') or local_info['artist']
+            local_info['source_url'] = online_info.get('source_url') or local_info['source_url']
+            local_info['cover_url'] = online_info.get('cover_url') or local_info['cover_url']
+            local_info['lyric_id'] = online_info.get('lyric_id') or local_info['lyric_id']
+            if has_real_lyrics_entries(online_info.get('lyrics')):
+                local_info['lyrics'] = online_info.get('lyrics')
+        return jsonify(local_info)
 
     info, err = get_song_info(url)
     if info and not err and has_real_lyrics_entries(info.get('lyrics')):
