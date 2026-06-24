@@ -351,8 +351,13 @@ function findFavoriteForSong(songOrId) {
     const songId = typeof songOrId === 'object' ? songOrId?.id : songOrId;
     return state.favorites.find(fav => {
         return fav.id === songId
-            || (song && fav.filename && song.filename && fav.filename === song.filename)
-            || (song && sameSongIdentity(fav.title, song.title) && sameSongIdentity(fav.artist, song.artist));
+            || (
+                song
+                && fav.filename
+                && song.filename
+                && fav.filename === song.filename
+                && (fav.id === fav.filename || song.id === song.filename)
+            );
     });
 }
 

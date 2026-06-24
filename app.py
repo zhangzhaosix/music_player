@@ -565,11 +565,18 @@ def same_song_identity(candidate_title, candidate_artist, title, artist):
     )
 
 
+def is_specific_song_url(url):
+    url = str(url or '').strip()
+    if not url:
+        return False
+    return url not in {QJJLB_BASE, QJJLB_ORIGIN, MUSICBOX_WEB_BASE, MUSICBOX_API_BASE, MUSICBOX_ORIGIN}
+
+
 def find_existing_downloaded_song(song_url='', source_url='', title='', artist=''):
     candidates = []
     for candidate in (song_url, source_url):
         candidate = str(candidate or '').strip()
-        if candidate and candidate not in candidates:
+        if is_specific_song_url(candidate) and candidate not in candidates:
             candidates.append(candidate)
 
     local_music = get_local_music()
@@ -581,9 +588,12 @@ def find_existing_downloaded_song(song_url='', source_url='', title='', artist='
         if not filename or not os.path.exists(os.path.join(MUSIC_DIR, filename)):
             continue
         record_urls = {
-            str(record.get('source_url', '') or '').strip(),
-            str(record.get('resolved_url', '') or '').strip(),
-            str(record.get('song_url', '') or '').strip(),
+            url for url in (
+                str(record.get('source_url', '') or '').strip(),
+                str(record.get('resolved_url', '') or '').strip(),
+                str(record.get('song_url', '') or '').strip(),
+            )
+            if is_specific_song_url(url)
         }
         if any(candidate and candidate in record_urls for candidate in candidates):
             return filename
@@ -716,9 +726,11 @@ def is_song_favorited(song, favorites):
             continue
         if fav.get('id') == song.get('id'):
             return True
-        if fav.get('filename') and fav.get('filename') == song.get('filename'):
-            return True
-        if same_song_identity(fav.get('title', ''), fav.get('artist', ''), song.get('title', ''), song.get('artist', '')):
+        if (
+            fav.get('filename')
+            and fav.get('filename') == song.get('filename')
+            and (fav.get('id') == fav.get('filename') or song.get('id') == song.get('filename'))
+        ):
             return True
     return False
 
@@ -1496,8 +1508,11 @@ def api_add_favorite():
     for existing in favs:
         if (
             existing.get('id') == fav.get('id')
-            or (existing.get('filename') and existing.get('filename') == fav.get('filename'))
-            or same_song_identity(existing.get('title', ''), existing.get('artist', ''), fav.get('title', ''), fav.get('artist', ''))
+            or (
+                existing.get('filename')
+                and existing.get('filename') == fav.get('filename')
+                and (existing.get('id') == existing.get('filename') or fav.get('id') == fav.get('filename'))
+            )
         ):
             return jsonify({'success': True, 'message': '已收藏', 'favorite': hydrate_song_entry(existing)})
 

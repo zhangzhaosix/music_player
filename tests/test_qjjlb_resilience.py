@@ -494,7 +494,7 @@ class QjjlbResilienceTests(unittest.TestCase):
             with open(download_index_path, 'r', encoding='utf-8') as f:
                 self.assertEqual(json.load(f), [])
 
-    def test_api_search_marks_downloaded_when_local_file_matches_title_and_artist(self):
+    def test_api_search_marks_downloaded_without_favoriting_when_only_title_and_artist_match(self):
         client = app.app.test_client()
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -507,7 +507,12 @@ class QjjlbResilienceTests(unittest.TestCase):
             with patch.object(app, 'BASE_DIR', tmpdir), \
                  patch.object(app, 'MUSIC_DIR', music_dir), \
                  patch.object(app, 'get_favorites_map', return_value={
-                     'fav-love': {'id': 'fav-love', 'title': 'LOVE', 'artist': '15'},
+                     'fav-love': {
+                         'id': 'fav-love',
+                         'title': 'LOVE',
+                         'artist': '15',
+                         'filename': existing_filename,
+                     },
                  }), \
                  patch.object(app, 'search_qjjlb', return_value=[{
                      'id': 'upstream-song-id',
@@ -522,8 +527,105 @@ class QjjlbResilienceTests(unittest.TestCase):
         data = resp.get_json()
         self.assertEqual(len(data['results']), 1)
         self.assertTrue(data['results'][0]['downloaded'])
-        self.assertTrue(data['results'][0]['favorited'])
+        self.assertFalse(data['results'][0]['favorited'])
         self.assertEqual(data['results'][0]['filename'], existing_filename)
+
+    def test_is_song_favorited_does_not_match_only_by_title_and_artist(self):
+        favorites = {
+            'fav-love-1': {
+                'id': 'fav-love-1',
+                'title': 'LOVE',
+                'artist': '15',
+                'filename': '',
+            }
+        }
+        song = {
+            'id': 'fav-love-2',
+            'title': 'LOVE',
+            'artist': '15',
+            'filename': '',
+        }
+
+        self.assertFalse(app.is_song_favorited(song, favorites))
+
+    def test_api_add_favorite_allows_same_title_and_artist_with_different_song_id(self):
+        client = app.app.test_client()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            favorites_path = os.path.join(tmpdir, 'favorites.json')
+            with open(favorites_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'id': 'qq-love-1',
+                    'title': 'LOVE',
+                    'artist': '15',
+                    'url': 'qjjlb://qq?msg=love&mid=001',
+                    'source_url': 'qjjlb://qq?msg=love&mid=001',
+                    'filename': '',
+                    'downloaded': False,
+                }], f, ensure_ascii=False, indent=2)
+
+            with patch.object(app, 'FAVORITES_FILE', favorites_path):
+                resp = client.post('/api/favorites', json={
+                    'id': 'kuwo-love-2',
+                    'title': 'LOVE',
+                    'artist': '15',
+                    'url': 'qjjlb://kuwo?id=002',
+                    'source_url': 'qjjlb://kuwo?id=002',
+                    'filename': '',
+                    'downloaded': False,
+                })
+
+            self.assertEqual(resp.status_code, 200)
+            data = resp.get_json()
+            self.assertTrue(data['success'])
+            self.assertEqual(data['favorite']['id'], 'kuwo-love-2')
+
+            with open(favorites_path, 'r', encoding='utf-8') as f:
+                favorites = json.load(f)
+
+            self.assertEqual([fav['id'] for fav in favorites], ['qq-love-1', 'kuwo-love-2'])
+
+    def test_find_existing_downloaded_song_ignores_generic_source_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            wrong_filename = '起风了_1700000000.mp3'
+            right_filename = 'Feel It Still_1700000001.mp3'
+            for filename in (wrong_filename, right_filename):
+                with open(os.path.join(music_dir, filename), 'wb') as f:
+                    f.write(b'fake-mp3')
+
+            download_index_path = os.path.join(tmpdir, 'downloads.json')
+            with open(download_index_path, 'w', encoding='utf-8') as f:
+                json.dump([
+                    {
+                        'filename': wrong_filename,
+                        'title': '起风了',
+                        'artist': '买辣椒也用券',
+                        'song_url': 'qjjlb://qq?msg=wind&mid=wrong',
+                        'source_url': app.QJJLB_BASE,
+                        'resolved_url': 'qjjlb://qq?msg=wind&mid=wrong',
+                    },
+                    {
+                        'filename': right_filename,
+                        'title': 'Feel It Still',
+                        'artist': 'Portugal. The Man',
+                        'song_url': 'qjjlb://qq?msg=feel+it+still&mid=right',
+                        'source_url': 'qjjlb://qq?msg=feel+it+still&mid=right',
+                        'resolved_url': 'qjjlb://qq?msg=feel+it+still&mid=right',
+                    },
+                ], f, ensure_ascii=False, indent=2)
+
+            with patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path):
+                filename = app.find_existing_downloaded_song(
+                    'qjjlb://qq?msg=feel+it+still&mid=unknown',
+                    app.QJJLB_BASE,
+                    'Feel It Still',
+                    'Portugal. The Man',
+                )
+
+        self.assertEqual(filename, right_filename)
 
     def test_api_update_playlist_removes_song_by_id_from_object_entries(self):
         client = app.app.test_client()
