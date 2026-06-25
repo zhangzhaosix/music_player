@@ -100,6 +100,17 @@ class QjjlbResilienceTests(unittest.TestCase):
         kuwo.assert_called_once_with('test-default-source', 20)
         netease.assert_not_called()
 
+    def test_search_qjjlb_returns_generic_error_when_all_sources_fail(self):
+        with patch.object(app, 'search_qjjlb_qq', return_value=(None, 'qjjlb 暂时不可用，请检查本机网络权限或代理设置后重试')), \
+             patch.object(app, 'search_qjjlb_kuwo', return_value=(None, 'qjjlb 请求失败，请稍后重试')), \
+             patch.object(app, 'search_qjjlb_netease', return_value=(None, 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试')):
+            result = app.search_qjjlb('test-all-source-failed', limit=10, source_names=['qq', 'kuwo', 'netease'])
+
+        self.assertEqual(
+            result,
+            ({'error': '在线搜索源暂时不可用，请稍后重试'}, 502),
+        )
+
     def test_api_search_uses_fallback_source_when_qq_fails(self):
         client = app.app.test_client()
 

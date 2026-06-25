@@ -58,6 +58,17 @@ def format_upstream_request_error(source_name, error):
     return f'{source_name} 请求失败，请稍后重试'
 
 
+def summarize_search_errors(errors):
+    messages = [str(error or '').strip() for error in errors if str(error or '').strip()]
+    if not messages:
+        return '在线搜索源请求失败，请稍后重试'
+    if len(messages) == 1:
+        return messages[0]
+    if any('暂时不可用' in message for message in messages):
+        return '在线搜索源暂时不可用，请稍后重试'
+    return '在线搜索源请求失败，请稍后重试'
+
+
 def get_qjjlb_session():
     """获取带 cookies 的 qjjlb requests Session"""
     global _qjjlb_session
@@ -437,7 +448,7 @@ def search_qjjlb(keyword, limit=60, source_names=None, source_limit=DEFAULT_SOUR
 
     results = []
     seen_keys = set()
-    last_error = None
+    errors = []
     source_fetchers = {
         'qq': lambda: search_qjjlb_qq(keyword, source_limit),
         'kuwo': lambda: search_qjjlb_kuwo(keyword, source_limit),
@@ -450,7 +461,7 @@ def search_qjjlb(keyword, limit=60, source_names=None, source_limit=DEFAULT_SOUR
             continue
         page_results, err = fetcher()
         if err:
-            last_error = err
+            errors.append(err)
             continue
         if not page_results:
             continue
@@ -473,8 +484,8 @@ def search_qjjlb(keyword, limit=60, source_names=None, source_limit=DEFAULT_SOUR
         store_search_results(keyword, results, source_names, source_limit)
         return results[:limit]
 
-    if last_error:
-        return {'error': last_error}, 502
+    if errors:
+        return {'error': summarize_search_errors(errors)}, 502
 
     return []
 
