@@ -69,6 +69,7 @@ const cancelDeleteConfirmBtn = $('cancelDeleteConfirmBtn');
 const confirmDeleteConfirmBtn = $('confirmDeleteConfirmBtn');
 
 let deleteConfirmResolver = null;
+let isSearchComposing = false;
 
 // ─── SVG 图标 ──────────────────────────────────────────
 const ICON = {
@@ -89,6 +90,64 @@ const ICON = {
   musicNote: '<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M14.5 2.25A.75.75 0 0115.17 3l.006 11.747a3.748 3.748 0 01-5.304 3.36 3.75 3.75 0 01-1.806-4.226 3.75 3.75 0 014.05-2.882l.002 2a2.25 2.25 0 10-1.582 2.522L11 11.193V4.909c0-.21.07-.414.198-.575l.098-.125a2.25 2.25 0 011.328-.738l.206-.027.545-.068.322-.04.496-.062c.4-.05.807-.074 1.222-.074h.117a.75.75 0 01.087 1.498l-.026.001h-.242z"/></svg>',
   check: '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3 3 8-8"/></svg>',
 };
+
+function renderPlaylistFolderIcon(kind = 'card') {
+    const className = kind === 'inline'
+        ? 'playlist-folder-icon playlist-folder-icon-inline'
+        : 'playlist-folder-icon playlist-folder-icon-card';
+    return `<span class="${className}" aria-hidden="true">
+        <svg viewBox="0 0 512 512" focusable="false" role="img">
+            <defs>
+                <linearGradient id="pf-body" x1="96" y1="120" x2="416" y2="400" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#637558" />
+                    <stop offset="0.46" stop-color="#3e4b3e" />
+                    <stop offset="1" stop-color="#161d18" />
+                </linearGradient>
+                <linearGradient id="pf-front" x1="84" y1="188" x2="430" y2="402" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#55634d" />
+                    <stop offset="0.5" stop-color="#2f392f" />
+                    <stop offset="1" stop-color="#171d18" />
+                </linearGradient>
+                <linearGradient id="pf-tab" x1="120" y1="106" x2="300" y2="176" gradientUnits="userSpaceOnUse">
+                    <stop offset="0" stop-color="#75886a" />
+                    <stop offset="1" stop-color="#435245" />
+                </linearGradient>
+                <radialGradient id="pf-disc" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(250 300) rotate(90) scale(126)">
+                    <stop offset="0" stop-color="#474d45" />
+                    <stop offset="0.58" stop-color="#212622" />
+                    <stop offset="1" stop-color="#111512" />
+                </radialGradient>
+                <radialGradient id="pf-center" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(250 300) scale(58)">
+                    <stop offset="0" stop-color="#fbf5e6" />
+                    <stop offset="1" stop-color="#e0d0af" />
+                </radialGradient>
+                <filter id="pf-shadow" x="54" y="74" width="404" height="392" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+                    <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#020302" flood-opacity="0.18" />
+                </filter>
+            </defs>
+            <g filter="url(#pf-shadow)">
+                <path d="M108 150c0-28 23-50 50-50h80c15 0 29 6 39 17l22 25h113c28 0 50 22 50 50v156c0 34-28 62-62 62H170c-34 0-62-28-62-62V150z" fill="url(#pf-body)" />
+                <path d="M96 178c0-25 20-45 45-45h93c15 0 28 6 38 17l18 21h126c28 0 50 22 50 50v143c0 36-29 65-65 65H161c-36 0-65-29-65-65V178z" fill="url(#pf-front)" />
+                <path d="M105 139h89c16 0 30 7 40 18l15 17h133c23 0 41 18 41 41v10H105v-86z" fill="url(#pf-tab)" />
+                <path d="M104 187h306" stroke="rgba(223,232,210,0.56)" stroke-width="2.7" stroke-linecap="round" />
+                <g transform="translate(250 304)">
+                    <circle r="120" fill="url(#pf-disc)" />
+                    <circle r="98" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="1.8" />
+                    <circle r="78" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1.8" />
+                    <circle r="58" fill="none" stroke="rgba(255,255,255,0.038)" stroke-width="1.8" />
+                    <circle r="38" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1.8" />
+                    <circle r="62" fill="rgba(0,0,0,0.08)" />
+                    <circle r="50" fill="url(#pf-center)" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" />
+                    <circle r="14" fill="#1b1710" />
+                    <circle r="8" fill="rgba(255,255,255,0.04)" />
+                </g>
+                <circle cx="250" cy="304" r="130" fill="none" stroke="rgba(206,224,181,0.42)" stroke-width="3" />
+                <circle cx="250" cy="304" r="131.5" fill="none" stroke="rgba(25,31,26,0.72)" stroke-width="1.8" />
+                <path d="M135 388c18 10 44 16 76 16h72c73 0 117-27 131-81" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="14" stroke-linecap="round" />
+            </g>
+        </svg>
+    </span>`;
+}
 
 // ─── 工具栏 ─────────────────────────────────────────────
 
@@ -534,19 +593,18 @@ if (favoriteCurrentBtn) {
 
 // 搜索
 searchBtn.addEventListener('click', () => {
-    clearTimeout(state.searchDebounceTimer);
     doSearch();
 });
-searchInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-        clearTimeout(state.searchDebounceTimer);
-        doSearch();
-    }
+searchInput.addEventListener('compositionstart', () => {
+    isSearchComposing = true;
 });
-searchInput.addEventListener('input', () => {
-    clearTimeout(state.searchDebounceTimer);
-    if (!searchInput.value.trim()) return;
-    state.searchDebounceTimer = setTimeout(() => doSearch({ silentEmpty: true }), 300);
+searchInput.addEventListener('compositionend', () => {
+    isSearchComposing = false;
+});
+searchInput.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.isComposing || isSearchComposing || e.keyCode === 229) return;
+    e.preventDefault();
+    doSearch();
 });
 
 if (batchCancelBtn) batchCancelBtn.addEventListener('click', clearBatchSelection);
@@ -572,6 +630,7 @@ function setSearchLoading(isLoading) {
 
 async function doSearch(options = {}) {
     const q = searchInput.value.trim();
+    searchInput.value = q;
     if (!q) {
         if (!options.silentEmpty) toast('请输入搜索关键词', true);
         return;
@@ -624,7 +683,7 @@ function renderSearchResults() {
         syncBatchToolbar();
         return;
     }
-    container.innerHTML = state.searchResults.map(song => buildSongItem(song)).join('');
+    container.innerHTML = state.searchResults.map(song => buildSongItem(song, { hideSelectBtn: true })).join('');
     updateBatchSelectionUI();
     syncBatchToolbar();
 }
@@ -764,7 +823,7 @@ async function loadDownloads() {
             container.innerHTML = '<div class="empty-state"><p>还没有下载过歌曲</p><p class="hint">搜索歌曲后点击 💾 下载</p></div>';
             return;
         }
-        container.innerHTML = state.localMusic.map(song => buildSongItem(song)).join('');
+        container.innerHTML = state.localMusic.map(song => buildSongItem(song, { hideSelectBtn: true })).join('');
     } catch (err) {
         container.innerHTML = '<div class="empty-state"><p>加载失败</p></div>';
     }
@@ -775,6 +834,7 @@ async function loadDownloads() {
 function buildSongItem(song, options = {}) {
     const isPlaying = state.currentSong && state.currentSong.id === song.id;
     const isSelected = state.selectedSongIds.has(song.id);
+    const hideSelectBtn = !!options.hideSelectBtn;
     const playIcon = isPlaying && state.isPlaying ? ICON.pause : ICON.play;
     const dlClass = song.downloaded ? 'downloaded' : '';
     const dlIcon = song.downloaded ? ICON.downloadDone : ICON.download;
@@ -789,7 +849,7 @@ function buildSongItem(song, options = {}) {
     const playingClass = isPlaying ? 'playing-now' : '';
     return `
         <div class="song-item ${playingClass}${isSelected ? ' selected' : ''}" data-song-id="${song.id}">
-            <button class="song-select-btn${isSelected ? ' selected' : ''}" onclick="toggleSongSelection('${song.id}')" aria-label="选择歌曲" aria-pressed="${isSelected ? 'true' : 'false'}">${isSelected ? ICON.check : ''}</button>
+            ${hideSelectBtn ? '' : `<button class="song-select-btn${isSelected ? ' selected' : ''}" onclick="toggleSongSelection('${song.id}')" aria-label="选择歌曲" aria-pressed="${isSelected ? 'true' : 'false'}">${isSelected ? ICON.check : ''}</button>`}
             <div class="song-cover">${ICON.musicNote}</div>
             <div class="song-info">
                 <div class="song-title">${escapeHtml(song.title || '未知歌曲')}</div>
@@ -1640,7 +1700,7 @@ async function showPlaylistDetail(plId) {
     header.innerHTML = `
         <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
         <div class="playlist-detail-info">
-            <h2>📁 ${escapeHtml(pl.name)}</h2>
+            <h2>${renderPlaylistFolderIcon('inline')} ${escapeHtml(pl.name)}</h2>
             <span class="song-count">${pl.songs.length} 首</span>
         </div>
         <div class="playlist-detail-actions">
@@ -1660,7 +1720,7 @@ async function showPlaylistDetail(plId) {
         return resolvePlayableSong(songId) || { id: songId, title: '未知歌曲', artist: '未知歌手' };
     });
 
-    container.innerHTML = detailSongs.map(song => buildSongItem(song, { playlistId: pl.id })).join('');
+    container.innerHTML = detailSongs.map(song => buildSongItem(song, { playlistId: pl.id, hideSelectBtn: true })).join('');
 }
 
 async function removeSongFromPlaylist(plId, songId) {
@@ -1698,7 +1758,7 @@ function showAddToPlaylist(songIdOrIds) {
     overlay.id = 'addToPlOverlay';
 
     let optionsHtml = state.playlists.map(pl =>
-        `<div class="pl-option" onclick="addSongToPlaylist('${pl.id}')">📁 ${escapeHtml(pl.name)} (${pl.songs.length})</div>`
+        `<div class="pl-option" onclick="addSongToPlaylist('${pl.id}')">${renderPlaylistFolderIcon('inline')} ${escapeHtml(pl.name)} (${pl.songs.length})</div>`
     ).join('');
 
     if (!state.playlists.length) {
@@ -1902,7 +1962,7 @@ function renderPlaylistsTab() {
         return `
             <div class="playlist-card">
                 <div class="pl-card-top" onclick="showPlaylistDetail('${pl.id}')">
-                    <div class="pl-card-icon">📁</div>
+                    <div class="pl-card-icon">${renderPlaylistFolderIcon('card')}</div>
                     <div class="pl-card-name">${escapeHtml(pl.name)}</div>
                     <div class="pl-card-count">${count} 首</div>
                 </div>
@@ -2186,7 +2246,7 @@ async function showPlaylistDetail(plId) {
     header.innerHTML = `
         <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
         <div class="playlist-detail-info">
-            <h2>📁 ${escapeHtml(pl.name)}</h2>
+            <h2>${renderPlaylistFolderIcon('inline')} ${escapeHtml(pl.name)}</h2>
             <span class="song-count">${pl.songs.length} 首</span>
         </div>
         <div class="playlist-detail-actions">
@@ -2203,7 +2263,7 @@ async function showPlaylistDetail(plId) {
     }
 
     const detailSongs = pl.songs.map(normalizePlaylistSong).filter(song => song && song.id);
-    container.innerHTML = detailSongs.map(song => buildSongItem(song, { playlistId: pl.id })).join('');
+    container.innerHTML = detailSongs.map(song => buildSongItem(song, { playlistId: pl.id, hideSelectBtn: true })).join('');
 }
 
 async function addSongToPlaylist(plId) {

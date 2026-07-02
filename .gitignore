@@ -7,3 +7,8 @@ server_log.txt
 tmp-server*.log
 闇€瑕佷笂浼犺嚦github/
 .env
+音乐合集/
+data/音乐合集/
+.venv/
+.tmp-playlist-card-desktop.png
+.tmp-playlist-card-mobile.png

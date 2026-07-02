@@ -1,14 +1,5 @@
 [
   {
-    "id": "25957419-7ff9-5c84-a96e-049e759cfac6",
-    "title": "Feel It Still",
-    "artist": "Portugal. The Man",
-    "url": "qjjlb://qq?msg=feel+it+still&mid=002yJ6PS2pCJXk",
-    "filename": "",
-    "downloaded": false,
-    "added_at": "2026-06-23T14:08:22.769584"
-  },
-  {
     "id": "dff6949b-7c59-5e6d-9004-2b7710a1412e",
     "title": "海屿你 (破碎版)",
     "artist": "白慕寒",
@@ -52,15 +43,6 @@
     "filename": "",
     "downloaded": false,
     "added_at": "2026-06-23T14:11:05.736324"
-  },
-  {
-    "id": "f2cd49a8-f3c0-5fcf-89cb-1132bf04f922",
-    "title": "爱人错过",
-    "artist": "告五人",
-    "url": "qjjlb://qq?msg=%E7%88%B1%E4%BA%BA%E9%94%99%E8%BF%87&mid=0029B8mN2eOjhw",
-    "filename": "",
-    "downloaded": false,
-    "added_at": "2026-06-23T14:11:41.795951"
   },
   {
     "id": "9db054c1-1ce6-51ed-bfdc-85e7bff85748",
@@ -234,21 +216,146 @@
     "added_at": "2026-06-23T18:34:30.765571"
   },
   {
+    "id": "f2cd49a8-f3c0-5fcf-89cb-1132bf04f922",
+    "title": "爱人错过",
+    "artist": "告五人",
+    "url": "qjjlb://qq?msg=%E7%88%B1%E4%BA%BA%E9%94%99%E8%BF%87&mid=0029B8mN2eOjhw",
+    "source_url": "qjjlb://qq?msg=%E7%88%B1%E4%BA%BA%E9%94%99%E8%BF%87&mid=0029B8mN2eOjhw",
+    "mp3_url": "/api/stream/%E7%88%B1%E4%BA%BA%E9%94%99%E8%BF%87_1782298260.mp3",
+    "filename": "爱人错过_1782298260.mp3",
+    "downloaded": true,
+    "added_at": "2026-06-24T19:46:48.602646"
+  },
+  {
+    "id": "46f67df3-62af-570b-af8f-01b660ffec95",
+    "title": "奔跑",
+    "artist": "黄征",
+    "url": "qjjlb://qq?msg=%E5%A5%94%E8%B7%91&mid=001B6Z2d1y7hmh",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "/api/stream/%E8%B5%B7%E9%A3%8E%E4%BA%86%20%28%E6%97%A7%E7%89%88%29_1782298458.mp3",
+    "filename": "起风了 (旧版)_1782298458.mp3",
+    "downloaded": true,
+    "added_at": "2026-06-24T23:22:02.778502"
+  },
+  {
+    "id": "2a495d2f-7ab1-577a-8d78-df3c7f74f694",
+    "title": "天空之城 (钢琴版)",
+    "artist": "Starsfull",
+    "url": "qjjlb://qq?msg=%E5%A4%A9%E7%A9%BA%E4%B9%8B%E5%9F%8E&mid=001hskFn1KsULf",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-01T15:25:30.883040"
+  },
+  {
+    "id": "079e0255-83a8-57e1-8ead-0dea61718009",
+    "title": "如果的事",
+    "artist": "范玮琪",
+    "url": "qjjlb://qq?msg=%3A%E5%A6%82%E6%9E%9C%E7%9A%84%E4%BA%8B-%E8%8C%83%E7%8E%AE%E7%90%AA&mid=0040ZKt52jxJ6Y",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-01T15:25:58.867554"
+  },
+  {
+    "id": "e57b4204-e0e1-5e0d-b4ff-fa1795d5b7df",
+    "title": "夏の喚く- 钢琴曲 (改编 版原唱 邱有句)",
+    "artist": "小小君",
+    "url": "qjjlb://qq?msg=%E5%A4%8F%E3%81%AE%E5%96%9A%E3%81%8F&mid=001VpIO00rUWeJ",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-01T15:26:55.765638"
+  },
+  {
+    "id": "339b8256-2c1c-57fc-9598-cc6e16698765",
+    "title": "夏の喚く（钢琴版）",
+    "artist": "李栋平",
+    "url": "qjjlb://qq?msg=%E5%A4%8F%E3%81%AE%E5%96%9A%E3%81%8F&mid=000gKVHe3NavpB",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-01T15:27:21.912697"
+  },
+  {
+    "id": "6a28ad09-eb2a-5696-9fe9-0e15de55318d",
+    "title": "いつも何度でも (Always with Me)",
+    "artist": "宗次郎",
+    "url": "qjjlb://qq?msg=%E3%81%84%E3%81%A4%E3%82%82%E4%BD%95%E5%BA%A6%E3%81%A7%E3%82%82&mid=003O9ZTs10FvqH",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-01T15:28:57.028858"
+  },
+  {
+    "id": "c3279029-ec94-5164-8676-8cf8fd5b1f65",
+    "title": "secret base~君がくれたもの~ (秘密基地~你给我的所有~) (秘密基地~你给我的所有~) (Single Version)",
+    "artist": "多多poi",
+    "url": "qjjlb://qq?msg=%E3%80%8Asecretbase~%E5%90%9B%E3%81%8C%E3%81%8F%E3%82%8C%E3%81%9F%E3%82%82%E3%81%AE~%E7%A7%98%E5%AF%86%E5%9F%BA%E5%9C%B0~%E4%BD%A0%E7%BB%99%E6%88%91%E7%9A%84%E6%89%80%E6%9C%89&mid=003HGAzZ1G6oSc",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-01T15:29:30.445229"
+  },
+  {
+    "id": "b48b5684-718e-53f1-aa4f-3239fc878036",
+    "title": "July - Beyond The Memory (记忆之外)",
+    "artist": "水",
+    "url": "qjjlb://qq?msg=July+-+Beyond+The+Memory+%E8%AE%B0%E5%BF%86%E4%B9%8B%E5%A4%96&mid=003iwLma2nUaXU",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-01T15:30:22.202289"
+  },
+  {
+    "id": "奔跑_1782352638.mp3",
+    "title": "奔跑",
+    "artist": "黄征",
+    "url": "qjjlb://qq?msg=%E5%A5%94%E8%B7%91&mid=001B6Z2d1y7hmh",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "/api/stream/%E5%A5%94%E8%B7%91_1782352638.mp3",
+    "filename": "奔跑_1782352638.mp3",
+    "downloaded": true,
+    "added_at": "2026-07-02T10:34:38.161353"
+  },
+  {
     "id": "c9e833a8-8aba-5973-84d2-e1f5f050ef20",
     "title": "起风了",
     "artist": "周深",
     "url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86&mid=002w57E00BGzXn",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
     "filename": "",
     "downloaded": false,
-    "added_at": "2026-06-23T18:45:55.924986"
+    "added_at": "2026-07-02T11:14:32.407242"
+  },
+  {
+    "id": "e3ca87fc-3ef3-5f43-90a2-1e6213973a7e",
+    "title": "起风了",
+    "artist": "买辣椒也用券",
+    "url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86&mid=003hKob536i6FA",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "/api/stream/%E8%B5%B7%E9%A3%8E%E4%BA%86%20%28%E6%97%A7%E7%89%88%29_1782298458.mp3",
+    "filename": "起风了 (旧版)_1782298458.mp3",
+    "downloaded": true,
+    "added_at": "2026-07-02T11:14:40.465758"
   },
   {
     "id": "fa995053-4197-5642-91e5-b1cf728e09ac",
     "title": "起风了 (旧版)",
     "artist": "买辣椒也用券",
     "url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86&mid=0004jPDk2eB2dt",
-    "filename": "",
-    "downloaded": false,
-    "added_at": "2026-06-23T18:46:02.109573"
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "/api/stream/%E8%B5%B7%E9%A3%8E%E4%BA%86%20%28%E6%97%A7%E7%89%88%29_1782298458.mp3",
+    "filename": "起风了 (旧版)_1782298458.mp3",
+    "downloaded": true,
+    "added_at": "2026-07-02T11:15:05.292410"
   }
 ]

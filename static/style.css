@@ -870,15 +870,18 @@ svg {
 }
 
 .playlist-card {
+    display: flex;
+    flex-direction: column;
     overflow: hidden;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: rgba(255, 255, 255, 0.035);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.042), rgba(255, 255, 255, 0.026));
+    transition: background 180ms ease, border-color 180ms ease;
 }
 
 .playlist-card:hover {
     border-color: var(--border-strong);
-    background: var(--surface-hover);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.066), rgba(255, 255, 255, 0.04));
 }
 
 .download-playlists-grid {
@@ -891,29 +894,67 @@ svg {
 }
 
 .pl-card-top {
-    padding: 20px 14px 14px;
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 116px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 20px 16px 18px;
     cursor: pointer;
+    text-align: center;
 }
 
 .pl-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 60px;
+    height: 60px;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+}
+
+.playlist-folder-icon {
     display: block;
-    margin-bottom: 10px;
-    color: var(--text-secondary);
-    font-size: 28px;
+    flex-shrink: 0;
+    user-select: none;
+    pointer-events: none;
+}
+
+.playlist-folder-icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.playlist-folder-icon-card {
+    width: 100%;
+    height: 100%;
+}
+
+.playlist-folder-icon-inline {
+    display: inline-block;
+    width: 1.5em;
+    height: 1.5em;
+    vertical-align: -0.28em;
 }
 
 .pl-card-name {
     overflow: hidden;
+    width: 100%;
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: center;
 }
 
 .pl-card-count {
-    margin-top: 5px;
-    color: var(--text-muted);
+    color: var(--text-secondary);
     font-size: 12px;
 }
 
@@ -922,8 +963,14 @@ svg {
     min-height: 38px;
     border: 0;
     border-top: 1px solid var(--border);
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.018);
+    transition: color 180ms ease, background 180ms ease;
+}
+
+.pl-card-play:hover {
     color: var(--text-primary);
-    background: transparent;
+    background: rgba(255, 255, 255, 0.05);
 }
 
 .modal-overlay,
