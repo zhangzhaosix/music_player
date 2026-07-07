@@ -1698,10 +1698,12 @@ async function showPlaylistDetail(plId) {
     // 构建头部按钮（直接替换 header 内容）
     const header = document.querySelector('.playlist-detail-header');
     header.innerHTML = `
-        <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
-        <div class="playlist-detail-info">
-            <h2>${renderPlaylistFolderIcon('inline')} ${escapeHtml(pl.name)}</h2>
-            <span class="song-count">${pl.songs.length} 首</span>
+        <div class="playlist-detail-main">
+            <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
+            <div class="playlist-detail-info">
+                <h2>${escapeHtml(pl.name)}</h2>
+                <span class="song-count">${pl.songs.length} 首</span>
+            </div>
         </div>
         <div class="playlist-detail-actions">
             <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">▶ 播放全部</button>
@@ -1757,9 +1759,12 @@ function showAddToPlaylist(songIdOrIds) {
     overlay.className = 'add-to-pl-overlay';
     overlay.id = 'addToPlOverlay';
 
-    let optionsHtml = state.playlists.map(pl =>
-        `<div class="pl-option" onclick="addSongToPlaylist('${pl.id}')">${renderPlaylistFolderIcon('inline')} ${escapeHtml(pl.name)} (${pl.songs.length})</div>`
-    ).join('');
+    let optionsHtml = state.playlists.map(pl => `
+        <div class="pl-option" onclick="addSongToPlaylist('${pl.id}')">
+            <span class="pl-option-name">${escapeHtml(pl.name)}</span>
+            <span class="pl-option-count">(${pl.songs.length})</span>
+        </div>
+    `).join('');
 
     if (!state.playlists.length) {
         optionsHtml = '<div style="padding:10px 12px;font-size:13px;color:#999">还没有歌单，先去创建</div>';
@@ -2244,10 +2249,12 @@ async function showPlaylistDetail(plId) {
 
     const header = document.querySelector('.playlist-detail-header');
     header.innerHTML = `
-        <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
-        <div class="playlist-detail-info">
-            <h2>${renderPlaylistFolderIcon('inline')} ${escapeHtml(pl.name)}</h2>
-            <span class="song-count">${pl.songs.length} 首</span>
+        <div class="playlist-detail-main">
+            <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
+            <div class="playlist-detail-info">
+                <h2>${escapeHtml(pl.name)}</h2>
+                <span class="song-count">${pl.songs.length} 首</span>
+            </div>
         </div>
         <div class="playlist-detail-actions">
             <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">▶ 播放全部</button>

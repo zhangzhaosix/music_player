@@ -524,5 +524,27 @@
     "filename": "",
     "downloaded": false,
     "added_at": "2026-07-07T09:22:13.191733"
+  },
+  {
+    "id": "4b4b3091-7729-5e8b-b147-6d14fdfd66ed",
+    "title": "ヤキモチ (吃醋)",
+    "artist": "高桥优",
+    "url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86&mid=003THFMp3KzsTd",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-07T09:58:53.717425"
+  },
+  {
+    "id": "All Falls Down (Acoustic)_1783389611.mp3",
+    "title": "All Falls Down (Acoustic)",
+    "artist": "Adam Christopher",
+    "url": "qjjlb://qq?msg=All+Falls+DownAdam+Christopher&mid=003htbWg2OBFf1",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "/api/stream/All%20Falls%20Down%20%28Acoustic%29_1783389611.mp3",
+    "filename": "All Falls Down (Acoustic)_1783389611.mp3",
+    "downloaded": true,
+    "added_at": "2026-07-07T10:00:39.211590"
   }
 ]
