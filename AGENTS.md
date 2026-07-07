@@ -198,6 +198,27 @@ Chrome DevTools MCP
 
 无需再次询问是否提交或推送。
 
+## Git 提交安全检查
+
+在执行任何 `git add`、`git commit`、`git push` 之前，必须先检查项目根目录是否存在 `.gitignore` 文件。
+
+如果不存在 `.gitignore`，需要先创建；如果已存在，需要确认其中已忽略以下内容：
+
+* `.env`、`.env.*`、`*.local`
+* `node_modules/`
+* `dist/`、`build/`、`.next/`、`.nuxt/`
+* `.vercel/`、`.netlify/`
+* `.cache/`、`.turbo/`
+* `*.log`
+* `.DS_Store`、`Thumbs.db`
+* `.idea/`、`.vscode/`
+* 临时文件、调试截图、测试输出、Codex 生成的无关杂物
+
+提交前必须执行 `git status`，确认没有敏感文件、无关文件、依赖目录、构建产物被加入提交。
+
+禁止为了方便直接 `git add .` 后提交。必须先查看变更清单，确认提交内容只包含与本次任务相关的文件。
+
+
 ---
 
 ## 项目快照
@@ -221,4 +242,3 @@ Chrome DevTools MCP
 - 我的歌单中的歌曲是否可以正常播放
 
 如果其中任意一项不正常，必须先修复，再继续后续修改或宣布完成。
-进行Github 上传的时候，要剔除本地下载歌曲。

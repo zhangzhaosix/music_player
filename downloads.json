@@ -252,15 +252,6 @@
     "downloaded_at": "2026-06-23T18:47:06.383744"
   },
   {
-    "filename": "海屿你 (破碎版)_1782298237.mp3",
-    "title": "海屿你 (破碎版)",
-    "artist": "白慕寒",
-    "song_url": "qjjlb://qq?msg=%E6%B5%B7%E5%B1%BF%E4%BD%A0&mid=004Th6td4LaoZs",
-    "source_url": "qjjlb://qq?msg=%E6%B5%B7%E5%B1%BF%E4%BD%A0&mid=004Th6td4LaoZs",
-    "resolved_url": "qjjlb://qq?msg=%E6%B5%B7%E5%B1%BF%E4%BD%A0&mid=004Th6td4LaoZs",
-    "downloaded_at": "2026-06-24T18:50:42.900772"
-  },
-  {
     "filename": "离开我的依赖_1782298243.mp3",
     "title": "离开我的依赖",
     "artist": "en (王翊恩)",
@@ -565,5 +556,41 @@
     "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
     "resolved_url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86&mid=002w57E00BGzXn",
     "downloaded_at": "2026-07-02T11:15:34.279334"
+  },
+  {
+    "filename": "微微_1783131380.mp3",
+    "title": "微微",
+    "artist": "傅如乔",
+    "song_url": "qjjlb://qq?msg=%E5%BE%AE%E5%BE%AE&mid=000B4ijs4Ufwql",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "resolved_url": "qjjlb://qq?msg=%E5%BE%AE%E5%BE%AE&mid=000B4ijs4Ufwql",
+    "downloaded_at": "2026-07-04T10:16:24.532412"
+  },
+  {
+    "filename": "侧脸_1783165520.mp3",
+    "title": "侧脸",
+    "artist": "于果",
+    "song_url": "qjjlb://qq?msg=%E4%BE%A7%E8%84%B8&mid=003WjRGk1b3FPN",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "resolved_url": "qjjlb://qq?msg=%E4%BE%A7%E8%84%B8&mid=003WjRGk1b3FPN",
+    "downloaded_at": "2026-07-04T19:45:21.443450"
+  },
+  {
+    "filename": "不是因为寂寞才想你_1783165521.mp3",
+    "title": "不是因为寂寞才想你",
+    "artist": "T.R.Y",
+    "song_url": "qjjlb://qq?msg=%E4%B8%8D%E6%98%AF%E5%9B%A0%E4%B8%BA%E5%AF%82%E5%AF%9E%E6%89%8D%E6%83%B3%E4%BD%A0&mid=002CRBUg09v2pd",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "resolved_url": "qjjlb://qq?msg=%E4%B8%8D%E6%98%AF%E5%9B%A0%E4%B8%BA%E5%AF%82%E5%AF%9E%E6%89%8D%E6%83%B3%E4%BD%A0&mid=002CRBUg09v2pd",
+    "downloaded_at": "2026-07-04T19:45:29.201828"
+  },
+  {
+    "filename": "王贰浪《把回忆拼好给你 (网友改编) 》_1783165530.mp3",
+    "title": "王贰浪《把回忆拼好给你 (网友改编) 》",
+    "artist": "是婉慧吖",
+    "song_url": "qjjlb://qq?msg=%E6%8A%8A%E5%9B%9E%E5%BF%86&mid=000GKb1Y3kHEYU",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "resolved_url": "qjjlb://qq?msg=%E6%8A%8A%E5%9B%9E%E5%BF%86&mid=000GKb1Y3kHEYU",
+    "downloaded_at": "2026-07-04T19:45:32.941708"
   }
 ]
