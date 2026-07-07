@@ -405,11 +405,51 @@ function syncCachedSongFlags() {
     syncFavoriteCurrentButton();
 }
 
+function qjjlbSongIdentityKeyFromUrl(url) {
+    const value = String(url || '').trim();
+    if (!value.toLowerCase().startsWith('qjjlb://')) return '';
+
+    try {
+        const parsed = new URL(value);
+        const provider = (parsed.hostname || parsed.pathname.replace(/^\/+/, '')).trim().toLowerCase();
+        const songIdParam = provider === 'qq' ? 'mid' : 'id';
+        const songId = (
+            parsed.searchParams.get(songIdParam)
+            || parsed.searchParams.get('id')
+            || parsed.searchParams.get('mid')
+            || parsed.searchParams.get('rid')
+            || ''
+        ).trim();
+        if (!provider || !songId) return '';
+        return `qjjlb:${provider}:${songId}`;
+    } catch {
+        return '';
+    }
+}
+
+function getSongIdentityKey(song) {
+    if (!song || typeof song !== 'object') return '';
+
+    for (const key of ['url', 'source_url', 'song_url', 'resolved_url']) {
+        const identity = qjjlbSongIdentityKeyFromUrl(song[key]);
+        if (identity) return identity;
+    }
+
+    const provider = String(song.type || '').trim().toLowerCase();
+    const songId = String(song.songid || '').trim();
+    if (song.source === 'qjjlb' && provider && songId) {
+        return `qjjlb:${provider}:${songId}`;
+    }
+    return '';
+}
+
 function findFavoriteForSong(songOrId) {
     const song = typeof songOrId === 'object' ? songOrId : findSongInState(songOrId);
     const songId = typeof songOrId === 'object' ? songOrId?.id : songOrId;
+    const identity = getSongIdentityKey(song);
     return state.favorites.find(fav => {
         return fav.id === songId
+            || (identity && identity === getSongIdentityKey(fav))
             || (
                 song
                 && fav.filename
@@ -420,14 +460,14 @@ function findFavoriteForSong(songOrId) {
     });
 }
 
-function isSongFavorited(songId) {
-    return Boolean(findFavoriteForSong(songId));
+function isSongFavorited(songOrId) {
+    return Boolean(findFavoriteForSong(songOrId));
 }
 
 function syncFavoriteCurrentButton() {
     if (!favoriteCurrentBtn) return;
 
-    const favorited = Boolean(state.currentSong && isSongFavorited(state.currentSong.id));
+    const favorited = Boolean(state.currentSong && isSongFavorited(state.currentSong));
     favoriteCurrentBtn.classList.toggle('favorited', favorited);
     favoriteCurrentBtn.innerHTML = favorited ? ICON.heart : ICON.heartOutline;
     favoriteCurrentBtn.title = favorited ? '取消收藏当前歌曲' : '收藏当前歌曲';
@@ -720,15 +760,17 @@ async function loadAllSongs() {
                 downloaded: fav.downloaded,
                 favorited: true,
                 url: fav.url,
+                source_url: fav.source_url,
             });
-            seen.add(fav.id);
+            seen.add(getSongIdentityKey(fav) || fav.id);
         }
 
         // 再加本地但未收藏的
         for (const s of state.localMusic) {
-            if (!seen.has(s.id)) {
-                all.push({ ...s, favorited: false });
-                seen.add(s.id);
+            const seenKey = getSongIdentityKey(s) || s.id;
+            if (!seen.has(seenKey)) {
+                all.push({ ...s, favorited: Boolean(findFavoriteForSong(s)) });
+                seen.add(seenKey);
             }
         }
 
@@ -816,7 +858,7 @@ async function loadDownloads() {
 
         const favIds = new Set(state.favorites.map(f => f.id));
         for (const s of state.localMusic) {
-            s.favorited = favIds.has(s.id);
+            s.favorited = Boolean(favIds.has(s.id) || findFavoriteForSong(s));
         }
 
         if (!state.localMusic.length) {
@@ -838,7 +880,7 @@ function buildSongItem(song, options = {}) {
     const playIcon = isPlaying && state.isPlaying ? ICON.pause : ICON.play;
     const dlClass = song.downloaded ? 'downloaded' : '';
     const dlIcon = song.downloaded ? ICON.downloadDone : ICON.download;
-    const favorited = isSongFavorited(song.id);
+    const favorited = isSongFavorited(song);
     const favClass = favorited ? 'favorited' : '';
     const favIcon = favorited ? ICON.heart : ICON.heartOutline;
     const removeFromPlaylistBtn = options.playlistId
@@ -1546,7 +1588,7 @@ async function toggleFavorite(songId) {
                 toast(data.error || '鎿嶄綔澶辫触', true);
                 return;
             }
-            state.favorites = state.favorites.filter(f => f.id !== songId);
+            state.favorites = state.favorites.filter(f => f.id !== favorite.id);
             song.favorited = false;
             toast('已取消收藏');
         } catch {

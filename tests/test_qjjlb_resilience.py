@@ -541,6 +541,60 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertFalse(data['results'][0]['favorited'])
         self.assertEqual(data['results'][0]['filename'], existing_filename)
 
+    def test_qjjlb_qq_song_id_ignores_search_keyword_when_mid_matches(self):
+        item = {
+            'song_mid': '004Th6td4LaoZs',
+            'song_title': '海屿你 (破碎版)',
+            'singer_name': '白慕寒',
+        }
+
+        full_keyword_song = app.make_qjjlb_song(
+            'qq',
+            item,
+            url=app.build_qjjlb_ref('qq', msg='海屿你', mid='004Th6td4LaoZs'),
+            source_url=app.QJJLB_BASE,
+        )
+        partial_keyword_song = app.make_qjjlb_song(
+            'qq',
+            item,
+            url=app.build_qjjlb_ref('qq', msg='海屿', mid='004Th6td4LaoZs'),
+            source_url=app.QJJLB_BASE,
+        )
+
+        self.assertEqual(full_keyword_song['id'], partial_keyword_song['id'])
+
+    def test_api_search_marks_favorite_when_qjjlb_mid_matches_historical_keyword(self):
+        client = app.app.test_client()
+        favorite = app.make_qjjlb_song(
+            'qq',
+            {
+                'song_mid': '004Th6td4LaoZs',
+                'song_title': '海屿你 (破碎版)',
+                'singer_name': '白慕寒',
+            },
+            url=app.build_qjjlb_ref('qq', msg='海屿你', mid='004Th6td4LaoZs'),
+            source_url=app.QJJLB_BASE,
+        )
+        result = app.make_qjjlb_song(
+            'qq',
+            {
+                'song_mid': '004Th6td4LaoZs',
+                'song_title': '海屿你 (破碎版)',
+                'singer_name': '白慕寒',
+            },
+            url=app.build_qjjlb_ref('qq', msg='海屿', mid='004Th6td4LaoZs'),
+            source_url=app.QJJLB_BASE,
+        )
+
+        with patch.object(app, 'get_favorites_map', return_value={favorite['id']: favorite}), \
+             patch.object(app, 'search_qjjlb', return_value=[result]):
+            resp = client.get('/api/search', query_string={'q': '海屿', 'source_limit': '20'})
+
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertEqual(len(data['results']), 1)
+        self.assertTrue(data['results'][0]['favorited'])
+
     def test_is_song_favorited_does_not_match_only_by_title_and_artist(self):
         favorites = {
             'fav-love-1': {

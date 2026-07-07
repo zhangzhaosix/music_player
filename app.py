@@ -163,6 +163,37 @@ def build_qjjlb_ref(provider, **params):
     return f'qjjlb://{provider}' + (f'?{query}' if query else '')
 
 
+def qjjlb_song_identity_key_from_url(url):
+    parsed = urllib.parse.urlparse(str(url or '').strip())
+    if (parsed.scheme or '').lower() != 'qjjlb':
+        return ''
+
+    provider = (parsed.netloc or parsed.path.lstrip('/')).strip().lower()
+    params = {key: values[0] for key, values in urllib.parse.parse_qs(parsed.query).items()}
+    song_id_param = 'mid' if provider == 'qq' else 'id'
+    song_id = str(params.get(song_id_param, '') or params.get('id', '') or params.get('mid', '') or params.get('rid', '')).strip()
+    if not provider or not song_id:
+        return ''
+    return f'qjjlb:{provider}:{song_id}'
+
+
+def song_identity_key(song):
+    if not isinstance(song, dict):
+        return ''
+
+    for key in ('url', 'source_url', 'song_url', 'resolved_url'):
+        identity = qjjlb_song_identity_key_from_url(song.get(key, ''))
+        if identity:
+            return identity
+
+    provider = str(song.get('type', '') or '').strip().lower()
+    if song.get('source') == 'qjjlb' and provider:
+        song_id = str(song.get('songid', '') or '').strip()
+        if song_id:
+            return f'qjjlb:{provider}:{song_id}'
+    return ''
+
+
 def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_url='', lyrics_text=''):
     if not isinstance(item, dict):
         return None
@@ -196,7 +227,11 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
     if cover_url.startswith('//'):
         cover_url = 'https:' + cover_url
 
-    canonical = url or source_url or mp3_url or f'{provider}:{title}:{artist}'
+    song_id = item.get('songid', item.get('id', item.get('song_mid', item.get('mid', item.get('rid', '')))))
+    identity_key = qjjlb_song_identity_key_from_url(url) or qjjlb_song_identity_key_from_url(source_url)
+    if not identity_key and song_id:
+        identity_key = f'qjjlb:{provider}:{song_id}'
+    canonical = identity_key or url or source_url or mp3_url or f'{provider}:{title}:{artist}'
 
     return {
         'id': str(uuid.uuid5(uuid.NAMESPACE_URL, canonical)),
@@ -208,7 +243,7 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
         'source': 'qjjlb',
         'cover_url': cover_url,
         'type': provider,
-        'songid': item.get('songid', item.get('id', '')),
+        'songid': song_id,
         'lyrics': parse_lrc_text(lyrics_text or item.get('lrc', '') or item.get('lyric', '') or ''),
     }
 
@@ -732,10 +767,13 @@ def get_favorites_map():
 def is_song_favorited(song, favorites):
     if not isinstance(song, dict):
         return False
+    identity = song_identity_key(song)
     for fav in favorites.values():
         if not isinstance(fav, dict):
             continue
         if fav.get('id') == song.get('id'):
+            return True
+        if identity and identity == song_identity_key(fav):
             return True
         if (
             fav.get('filename')
