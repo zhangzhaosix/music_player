@@ -70,6 +70,19 @@ const confirmDeleteConfirmBtn = $('confirmDeleteConfirmBtn');
 
 let deleteConfirmResolver = null;
 let isSearchComposing = false;
+const playbackState = {
+    baseVolume: Number(volumeBar?.value || 80) / 100,
+    trackGain: 1,
+    trackGainCache: new Map(),
+    audioPipeline: null,
+    analysisToken: 0,
+};
+const LEVELING_TARGET_RMS = 0.16;
+const LEVELING_ANALYZE_MS = 1200;
+const LEVELING_TIMEOUT_MS = 2500;
+const LEVELING_MIN_GAIN = 0.75;
+const LEVELING_MAX_GAIN = 1.45;
+const LEVELING_PEAK_LIMIT = 0.92;
 
 // ─── SVG 图标 ──────────────────────────────────────────
 const ICON = {
@@ -1019,6 +1032,233 @@ async function deleteLocalSongSilently(songId, filename = '') {
     return true;
 }
 
+function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+}
+
+function getTrackCacheKey(song, audioUrl = '') {
+    if (!song) return String(audioUrl || '');
+    return String(song.filename || song.mp3_url || song.url || song.source_url || audioUrl || song.id || '');
+}
+
+function applyEffectiveVolume() {
+    playbackState.baseVolume = clamp(Number(playbackState.baseVolume || 0), 0, 1);
+    playbackState.trackGain = clamp(Number(playbackState.trackGain || 1), 0, LEVELING_MAX_GAIN);
+    if (playbackState.audioPipeline?.gain) {
+        audio.volume = 1;
+        playbackState.audioPipeline.gain.gain.value = playbackState.baseVolume * playbackState.trackGain;
+        return;
+    }
+    audio.volume = playbackState.baseVolume;
+}
+
+async function ensureAudioPipeline() {
+    if (playbackState.audioPipeline) return playbackState.audioPipeline;
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) return null;
+
+    try {
+        const context = new AudioContextCtor();
+        const source = context.createMediaElementSource(audio);
+        const analyser = context.createAnalyser();
+        const gain = context.createGain();
+        analyser.fftSize = 2048;
+        const audioPipeline = { context, source, analyser, gain };
+        audioPipeline.source.connect(audioPipeline.analyser);
+        audioPipeline.analyser.connect(audioPipeline.gain);
+        audioPipeline.gain.connect(audioPipeline.context.destination);
+        playbackState.audioPipeline = audioPipeline;
+        applyEffectiveVolume();
+        return audioPipeline;
+    } catch {
+        return null;
+    }
+}
+
+function restoreCachedTrackGain(song, audioUrl = '') {
+    const trackKey = getTrackCacheKey(song, audioUrl);
+    if (!trackKey || !playbackState.trackGainCache.has(trackKey)) {
+        playbackState.trackGain = 1;
+        applyEffectiveVolume();
+        return false;
+    }
+    playbackState.trackGain = playbackState.trackGainCache.get(trackKey) || 1;
+    applyEffectiveVolume();
+    return true;
+}
+
+function rememberTrackGain(song, audioUrl, gainValue) {
+    const trackKey = getTrackCacheKey(song, audioUrl);
+    if (!trackKey) return;
+    playbackState.trackGainCache.set(trackKey, gainValue);
+}
+
+function delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function waitForMediaEvent(target, eventName, timeoutMs = LEVELING_TIMEOUT_MS) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const cleanup = () => {
+            target.removeEventListener(eventName, onEvent);
+            clearTimeout(timer);
+        };
+        const onEvent = () => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            resolve();
+        };
+        const timer = window.setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            reject(new Error(`${eventName} timeout`));
+        }, timeoutMs);
+        target.addEventListener(eventName, onEvent, { once: true });
+    });
+}
+
+async function waitForAudioMetadata() {
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) return;
+    await waitForMediaEvent(audio, 'loadedmetadata');
+}
+
+async function startAudioPlayback({ song, shouldPlay, seekTime, saveState }) {
+    try {
+        await waitForAudioMetadata();
+    } catch {
+        return false;
+    }
+
+    if (seekTime > 0.5 && seekTime < (audio.duration || Infinity)) {
+        try {
+            audio.currentTime = seekTime;
+        } catch {
+            // ponytail: seek fails on some remote streams, playback can still continue from 0.
+        }
+    }
+
+    playerBar.style.display = 'flex';
+    playerTitle.textContent = song.title || '未知歌曲';
+    playerArtist.textContent = song.artist || '未知歌手';
+    updateRangeFill(progressBar);
+
+    if (!shouldPlay) {
+        state.isPlaying = false;
+        playBtn.innerHTML = ICON.play;
+        equalizer.classList.add('paused');
+        updatePlayButtons();
+        syncImmersivePlayerUI();
+        return true;
+    }
+
+    try {
+        await audio.play();
+        state.isPlaying = true;
+        playBtn.innerHTML = ICON.pause;
+        equalizer.classList.remove('paused');
+        updatePlayButtons();
+        syncImmersivePlayerUI();
+        if (saveState) savePlaybackState();
+        return true;
+    } catch {
+        state.isPlaying = false;
+        playBtn.innerHTML = ICON.play;
+        equalizer.classList.add('paused');
+        updatePlayButtons();
+        syncImmersivePlayerUI();
+        return false;
+    }
+}
+
+async function analyzeTrackGain(song, audioUrl) {
+    if (restoreCachedTrackGain(song, audioUrl)) return true;
+
+    const audioPipeline = await ensureAudioPipeline();
+    if (!audioPipeline) return false;
+
+    const requestToken = playbackState.analysisToken;
+    try {
+        if (audioPipeline.context.state === 'suspended') {
+            await audioPipeline.context.resume();
+        }
+        await waitForAudioMetadata();
+        audioPipeline.gain.gain.value = 0;
+        try {
+            audio.currentTime = 0;
+        } catch {
+            return false;
+        }
+        await audio.play();
+        await delay(LEVELING_ANALYZE_MS);
+        if (requestToken !== playbackState.analysisToken) return false;
+
+        const samples = new Float32Array(audioPipeline.analyser.fftSize);
+        audioPipeline.analyser.getFloatTimeDomainData(samples);
+        let sumSquares = 0;
+        let peak = 0;
+        for (const sample of samples) {
+            const magnitude = Math.abs(sample);
+            sumSquares += sample * sample;
+            if (magnitude > peak) peak = magnitude;
+        }
+
+        if (requestToken !== playbackState.analysisToken) return false;
+        audio.pause();
+        try {
+            audio.currentTime = 0;
+        } catch {
+            return false;
+        }
+
+        const rms = Math.sqrt(sumSquares / samples.length);
+        if (!Number.isFinite(rms) || rms <= 0.0001 || !Number.isFinite(peak) || peak <= 0) {
+            return false;
+        }
+
+        let nextGain = clamp(LEVELING_TARGET_RMS / rms, LEVELING_MIN_GAIN, LEVELING_MAX_GAIN);
+        if (peak * nextGain > LEVELING_PEAK_LIMIT) {
+            nextGain = Math.min(nextGain, LEVELING_PEAK_LIMIT / peak);
+        }
+
+        playbackState.trackGain = clamp(nextGain, LEVELING_MIN_GAIN, LEVELING_MAX_GAIN);
+        rememberTrackGain(song, audioUrl, playbackState.trackGain);
+        applyEffectiveVolume();
+        return true;
+    } catch {
+        return false;
+    } finally {
+        if (requestToken === playbackState.analysisToken) {
+            try {
+                audio.pause();
+            } catch {
+                // ignore pause failures
+            }
+            applyEffectiveVolume();
+        }
+    }
+}
+
+async function startPlaybackWithLeveling({ song, audioUrl, shouldPlay = true, seekTime = 0, saveState = false }) {
+    playbackState.analysisToken += 1;
+    playbackState.trackGain = 1;
+    applyEffectiveVolume();
+    audio.src = audioUrl;
+
+    if (!shouldPlay) {
+        restoreCachedTrackGain(song, audioUrl);
+        return startAudioPlayback({ song, shouldPlay, seekTime, saveState });
+    }
+
+    const leveled = await analyzeTrackGain(song, audioUrl);
+    if (!leveled) {
+        return startAudioPlayback({ song, shouldPlay, seekTime, saveState });
+    }
+    return startAudioPlayback({ song, shouldPlay, seekTime, saveState });
+}
+
 async function playSong(songId) {
     // 在当前所有歌曲列表中找这个歌曲
     let song = resolvePlayableSong(songId);
@@ -1064,22 +1304,17 @@ async function playSong(songId) {
         return;
     }
 
-    audio.src = audioUrl;
-    audio.play().then(() => {
-        state.isPlaying = true;
-        playBtn.innerHTML = ICON.pause;
-        equalizer.classList.remove('paused');
-        playerBar.style.display = 'flex';
-        playerTitle.textContent = song.title || '未知歌曲';
-        playerArtist.textContent = song.artist || '未知歌手';
-        updatePlayButtons();
-        updateRangeFill(progressBar);
-        syncImmersivePlayerUI();
-        savePlaybackState();
-    }).catch(() => {
+    const started = await startPlaybackWithLeveling({
+        song,
+        audioUrl,
+        shouldPlay: true,
+        seekTime: 0,
+        saveState: true,
+    });
+    if (!started) {
         toast('播放失败', true);
         syncImmersivePlayerUI();
-    });
+    }
 }
 
 function findSongInState(songId) {
@@ -1446,16 +1681,18 @@ progressBar.addEventListener('pointerup', () => {
 });
 
 volumeBar.addEventListener('input', () => {
-    audio.volume = volumeBar.value / 100;
+    playbackState.baseVolume = Number(volumeBar.value || 0) / 100;
     localStorage.setItem('music_volume', volumeBar.value);
+    applyEffectiveVolume();
     updateRangeFill(volumeBar, 'rgba(255,255,255,0.4)', 'rgba(255,255,255,0.12)');
 });
 
 function setVolume(value) {
     const next = Math.max(0, Math.min(100, Math.round(value)));
     volumeBar.value = String(next);
-    audio.volume = next / 100;
+    playbackState.baseVolume = next / 100;
     localStorage.setItem('music_volume', String(next));
+    applyEffectiveVolume();
     updateRangeFill(volumeBar, 'rgba(255,255,255,0.4)', 'rgba(255,255,255,0.12)');
 }
 
@@ -2241,40 +2478,15 @@ async function restorePlaybackState() {
         return;
     }
 
-    // 加载音频，恢复进度
-    audio.src = audioUrl;
     const seekTime = data.currentTime || 0;
     const shouldPlay = data.wasPlaying;
-
-    function onReady() {
-        if (seekTime > 0.5 && seekTime < (audio.duration || Infinity)) {
-            audio.currentTime = seekTime;
-        }
-        updateRangeFill(progressBar);
-        if (shouldPlay) {
-            audio.play().then(() => {
-                state.isPlaying = true;
-                playBtn.innerHTML = ICON.pause;
-                equalizer.classList.remove('paused');
-                updatePlayButtons();
-                syncImmersivePlayerUI();
-            }).catch(() => {
-                state.isPlaying = false;
-                playBtn.innerHTML = ICON.play;
-                equalizer.classList.add('paused');
-                updatePlayButtons();
-                syncImmersivePlayerUI();
-            });
-        } else {
-            syncImmersivePlayerUI();
-        }
-    }
-
-    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) {
-        onReady();
-    } else {
-        audio.addEventListener('loadedmetadata', onReady, { once: true });
-    }
+    await startPlaybackWithLeveling({
+        song,
+        audioUrl,
+        shouldPlay,
+        seekTime,
+        saveState: false,
+    });
 }
 
 // ─── 初始化 ─────────────────────────────────────────────
@@ -2411,8 +2623,9 @@ async function init() {
     const savedVol = localStorage.getItem('music_volume');
     if (savedVol !== null) {
         volumeBar.value = savedVol;
-        audio.volume = savedVol / 100;
     }
+    playbackState.baseVolume = Number(volumeBar.value || 0) / 100;
+    applyEffectiveVolume();
     updateRangeFill(volumeBar, 'rgba(255,255,255,0.4)', 'rgba(255,255,255,0.12)');
     await restorePlaybackState();
     syncImmersivePlayerUI();
