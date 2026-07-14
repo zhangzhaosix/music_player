@@ -92,7 +92,7 @@ Codex
 - 小步迭代
 - 持续可运行
 
-Chrome DevTools MCP
+Codex Chrome 插件
 负责：
 - 自动化测试
 - 功能验收
@@ -221,19 +221,6 @@ Chrome DevTools MCP
 
 ---
 
-## 项目快照
-
-- 项目用途：基于 Flask 的音乐播放器，支持在线搜索、试听、下载、收藏和歌单管理
-- 技术栈：Python + Flask，前端原生 HTML/CSS/JavaScript，JSON 数据存储
-- 核心模块：
-  - `app.py`：Flask 主程序，后端 API 与数据处理入口
-  - `templates/`：前端页面模板
-- `static/`：前端静态资源与交互脚本
-- `favorites.json`：收藏数据
-- `playlists.json`：歌单数据
-- `README.md`：项目说明与 API 文档
-
-一定要注意避免被反爬。
 ## 10. 修改后检查
 
 每次修改完成后，都必须逐项检查以下内容：

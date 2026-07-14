@@ -546,5 +546,93 @@
     "filename": "All Falls Down (Acoustic)_1783389611.mp3",
     "downloaded": true,
     "added_at": "2026-07-07T10:00:39.211590"
+  },
+  {
+    "id": "99a71253-5f70-541f-bf4e-1151e3e73f3e",
+    "title": "いつも何度でも (永远同在)",
+    "artist": "奥戸巴寿",
+    "url": "qjjlb://qq?msg=%E3%81%84%E3%81%A4%E3%82%82%E4%BD%95%E5%BA%A6%E3%81%A7%E3%82%82&mid=000ozixA07JqNb",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-09T08:46:48.047417"
+  },
+  {
+    "id": "442300",
+    "title": "いつも何度でも (千と千尋の神隠し)",
+    "artist": "木村弓",
+    "url": "https://fy-musicbox-api.mu-jie.cc/meting/?server=netease&type=url&id=442300",
+    "source_url": "qjjlb://netease?id=442300",
+    "mp3_url": "https://fy-musicbox-api.mu-jie.cc/meting/?server=netease&type=url&id=442300",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-09T08:53:23.087466"
+  },
+  {
+    "id": "98988626-ff90-5f65-bc7c-e370a44d6820",
+    "title": "起风了 (钢琴版)",
+    "artist": "橋野",
+    "url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86%E7%BA%AF%E9%9F%B3%E4%B9%90&mid=0008EyEu3rBmGO",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-11T14:16:00.335025"
+  },
+  {
+    "id": "97897792-6446-5c07-b3cc-cda31def59a4",
+    "title": "起风了 (纯钢琴)",
+    "artist": "Reach Me",
+    "url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86%E7%BA%AF%E9%9F%B3%E4%B9%90&mid=001f8C2J3lu231",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-11T14:16:19.834945"
+  },
+  {
+    "id": "f4172fa1-2704-5427-9c11-3d94d7d7c185",
+    "title": "打上花火 (钢琴版|纯音乐)",
+    "artist": "柳轻颂",
+    "url": "qjjlb://qq?msg=%E6%89%93%E4%B8%8A%E8%8A%B1%E7%81%AB%E7%BA%AF%E9%9F%B3%E4%B9%90&mid=002J7vpa4A2X3k",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-11T14:16:58.126245"
+  },
+  {
+    "id": "4bbbcfef-7570-5dc4-ab21-40d353963397",
+    "title": "樱花草 (治愈钢琴曲优美纯音乐)",
+    "artist": "潇尘",
+    "url": "qjjlb://qq?msg=%E6%A8%B1%E8%8A%B1%E8%8D%89%E7%BA%AF%E9%9F%B3%E4%B9%90&mid=002bJzvF2jQV9c",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-11T14:26:25.795528"
+  },
+  {
+    "id": "51ad48c4-b4b4-5614-8e0e-2a67b49153e1",
+    "title": "樱花草 (钢琴曲)",
+    "artist": "文武贝",
+    "url": "http://kw-api.cenguigui.cn?id=404605504&type=song&level=exhigh&format=mp3",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "http://kw-api.cenguigui.cn?id=404605504&type=song&level=exhigh&format=mp3",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-11T14:26:50.077684"
+  },
+  {
+    "id": "8b1a85a0-f286-5313-9c34-d6cf6d615bf5",
+    "title": "须尽欢",
+    "artist": "郑浩",
+    "url": "qjjlb://qq?msg=%E9%A1%BB%E5%B0%BD%E6%AC%A2&mid=0016dO233HjjnJ",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "mp3_url": "",
+    "filename": "",
+    "downloaded": false,
+    "added_at": "2026-07-14T22:30:15.826913"
   }
 ]
