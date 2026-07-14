@@ -8,14 +8,21 @@ import requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response, stream_with_context
 
-app = Flask(__name__)
-
 # 配置
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+FRONTEND_DIR = os.path.join(BASE_DIR, 'code', 'frontend')
+app = Flask(
+    __name__,
+    template_folder=os.path.join(FRONTEND_DIR, 'templates'),
+    static_folder=os.path.join(FRONTEND_DIR, 'static'),
+    static_url_path='/static',
+)
+
 MUSIC_DIR = os.path.join(BASE_DIR, '音乐合集')
-FAVORITES_FILE = os.path.join(BASE_DIR, 'favorites.json')
-PLAYLISTS_FILE = os.path.join(BASE_DIR, 'playlists.json')
-DOWNLOAD_INDEX_FILE = os.path.join(BASE_DIR, 'downloads.json')
+FAVORITES_FILE = os.path.join(DATA_DIR, 'favorites.json')
+PLAYLISTS_FILE = os.path.join(DATA_DIR, 'playlists.json')
+DOWNLOAD_INDEX_FILE = os.path.join(DATA_DIR, 'downloads.json')
 QJJLB_BASE = 'http://qjjlb.quanjian.com.cn/musicdl/'
 QJJLB_ORIGIN = 'http://qjjlb.quanjian.com.cn'
 MUSICBOX_WEB_BASE = 'https://mu-jie.cc/musicBox/'

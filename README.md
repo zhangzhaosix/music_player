@@ -20,18 +20,18 @@
 - 后端：Python + Flask
 - 网络请求：Requests
 - 前端：原生 HTML / CSS / JavaScript
-- 数据存储：`favorites.json`、`playlists.json`、`downloads.json`
+- 数据存储：`data/favorites.json`、`data/playlists.json`、`data/downloads.json`
 
 ## 目录结构
 
-- `app.py`：Flask 主程序与后端 API
-- `templates/`：页面模板
-- `static/`：前端静态资源
+- `AGENTS.md`：项目级协作规则
+- `code/backend/app.py`：Flask 主程序与后端 API
+- `code/frontend/templates/`：页面模板
+- `code/frontend/static/`：前端静态资源
+- `data/`：收藏、歌单和下载索引等运行数据
 - `音乐合集/`：下载后的本地歌曲
-- `favorites.json`：收藏数据
-- `playlists.json`：歌单数据
-- `downloads.json`：下载索引，用于识别已下载歌曲
 - `tests/`：自动化测试
+- `scripts/启动音乐网页.bat`：Windows 启动脚本
 
 ## 运行要求
 
@@ -42,12 +42,12 @@
 
 ```bash
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe app.py
+.\.venv\Scripts\python.exe code\backend\app.py
 ```
 
 浏览器访问：`http://127.0.0.1:5000`
 
-Windows 下也可以直接双击 `启动音乐网页.bat`。
+Windows 下也可以直接双击 `scripts/启动音乐网页.bat`。
 
 ## 环境变量
 
@@ -83,7 +83,7 @@ Windows 下也可以直接双击 `启动音乐网页.bat`。
 
 ### 为什么有些歌显示已下载，但本地没找到文件？
 
-本地下载状态同时依赖 `音乐合集/` 和 `downloads.json`。如果手动移动或删除了文件，建议重新下载或检查下载索引是否一致。
+本地下载状态同时依赖 `音乐合集/` 和 `data/downloads.json`。如果手动移动或删除了文件，建议重新下载或检查下载索引是否一致。
 
 ### 为什么播放或搜索失败？
 
@@ -91,7 +91,7 @@ Windows 下也可以直接双击 `启动音乐网页.bat`。
 
 ## 部署注意事项
 
-- 生产环境请保证 `音乐合集/`、`favorites.json`、`playlists.json`、`downloads.json` 可读写
+- 生产环境请保证 `音乐合集/` 和 `data/` 下的运行数据可读写
 - 不要把本地下载歌曲、缓存和临时文件提交到仓库
 - 如果部署到 Windows，建议保持 `.venv` 与启动脚本路径一致
 - 外部接口可能受网络环境影响，部署后如出现搜索失败，优先检查网络与代理

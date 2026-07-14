@@ -2,10 +2,14 @@ import json
 import os
 import unittest
 import tempfile
+from pathlib import Path
+import sys
 from unittest.mock import mock_open, patch
 
 import requests
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'code' / 'backend'))
 import app
 
 

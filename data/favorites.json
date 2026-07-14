@@ -633,6 +633,17 @@
     "mp3_url": "",
     "filename": "",
     "downloaded": false,
-    "added_at": "2026-07-14T22:30:15.826913"
+    "added_at": "2026-07-14T22:35:43.663167"
+  },
+  {
+    "id": "须尽欢_1784040624.mp3",
+    "title": "须尽欢",
+    "artist": "未知歌手",
+    "url": "",
+    "source_url": "",
+    "mp3_url": "/api/stream/%E9%A1%BB%E5%B0%BD%E6%AC%A2_1784040624.mp3",
+    "filename": "须尽欢_1784040624.mp3",
+    "downloaded": true,
+    "added_at": "2026-07-14T22:53:24.910939"
   }
 ]

@@ -717,6 +717,22 @@
         "songid": "442300",
         "source": "qjjlb",
         "type": "netease"
+      },
+      {
+        "artist": "郑浩",
+        "cover_url": "",
+        "downloaded": false,
+        "favorited": true,
+        "id": "8b1a85a0-f286-5313-9c34-d6cf6d615bf5",
+        "lyrics": [],
+        "mp3_url": "",
+        "songid": "0016dO233HjjnJ",
+        "source": "qjjlb",
+        "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+        "title": "须尽欢",
+        "type": "qq",
+        "url": "qjjlb://qq?msg=%E9%A1%BB%E5%B0%BD%E6%AC%A2&mid=0016dO233HjjnJ",
+        "filename": ""
       }
     ],
     "created_at": "2026-06-24T21:51:56.586730"
