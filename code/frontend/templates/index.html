@@ -44,26 +44,16 @@
 
             <section class="song-panel" aria-label="歌曲信息和歌词">
                 <div class="song-info-hero">
-                    <p id="songSource" class="song-source">LOCAL PLAYER</p>
                     <h1 id="heroSongTitle">沉浸式黑胶播放器</h1>
-                    <p id="heroSongMeta">在音乐库中选择歌曲，播放后唱片会随音乐缓慢旋转。</p>
                 </div>
 
                 <div class="lyric-tabs" role="tablist" aria-label="歌曲内容">
                     <button class="lyric-tab active" type="button" data-lyric-tab="lyrics" role="tab" aria-selected="true">歌词</button>
-                    <button class="lyric-tab" type="button" data-lyric-tab="about" role="tab" aria-selected="false">百科</button>
-                    <button class="lyric-tab" type="button" data-lyric-tab="related" role="tab" aria-selected="false">相关推荐</button>
                 </div>
 
                 <div class="lyric-panels">
                     <div id="lyricsPanel" class="lyric-panel active" data-panel="lyrics" role="tabpanel">
                         <div id="lyricsList" class="lyrics-list" aria-live="polite"></div>
-                    </div>
-                    <div class="lyric-panel info-panel" data-panel="about" role="tabpanel">
-                        <p id="aboutSongText">当前页面保留原有搜索、收藏、下载和歌单能力；歌曲百科区域作为轻量信息位，不额外抓取第三方资料。</p>
-                    </div>
-                    <div class="lyric-panel info-panel" data-panel="related" role="tabpanel">
-                        <p id="relatedSongText">相关推荐会优先使用当前播放队列。打开音乐库可继续搜索、收藏或管理歌单。</p>
                     </div>
                 </div>
             </section>

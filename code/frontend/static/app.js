@@ -56,11 +56,7 @@ const albumInitial = $('albumInitial');
 const vinylState = $('vinylState');
 const ambientSongTitle = $('ambientSongTitle');
 const heroSongTitle = $('heroSongTitle');
-const heroSongMeta = $('heroSongMeta');
-const songSource = $('songSource');
 const lyricsList = $('lyricsList');
-const aboutSongText = $('aboutSongText');
-const relatedSongText = $('relatedSongText');
 const favoriteCurrentBtn = $('favoriteCurrentBtn');
 const deleteConfirmModal = $('deleteConfirmModal');
 const deleteConfirmTitle = $('deleteConfirmTitle');
@@ -225,28 +221,10 @@ const DEFAULT_LYRIC_LINES = [
     '暂停之后，夜色和节拍一起停在这里。',
 ];
 const SEARCH_SOURCE_LIMIT = 20;
-const SOURCE_LABELS = {
-    netease: '网易云',
-};
 
 function getSongInitial(song) {
     const text = (song && (song.title || song.artist)) || '♪';
     return String(text).trim().charAt(0).toUpperCase() || '♪';
-}
-
-function getSourceLabel(song) {
-    if (!song) return 'LOCAL PLAYER';
-    if (song.downloaded || song.filename) return 'LOCAL FILE';
-    if (song.type && SOURCE_LABELS[song.type]) return SOURCE_LABELS[song.type];
-    return (song.source || 'ONLINE').toUpperCase();
-}
-
-function getSongMeta(song) {
-    if (!song) return '在音乐库中选择歌曲，播放后唱片会随音乐缓慢旋转。';
-    const artist = song.artist || '未知歌手';
-    const source = getSourceLabel(song);
-    const cache = song.downloaded ? '本地下载' : '在线试听';
-    return `${artist} · ${source} · ${cache}`;
 }
 
 function isBlockedSongText(text) {
@@ -276,10 +254,6 @@ function getLyricEntries(song) {
     return [
         `正在播放：${title}`,
         `${artist} 的声音在深色房间里展开。`,
-        '真实歌词暂未接入，这里保留沉浸式阅读节奏。',
-        '旋转的唱片、轻微的颗粒感和留白一起服务播放体验。',
-        '打开音乐库，可以继续搜索、收藏、下载或整理歌单。',
-        '让这一首歌慢慢走完，不急着切到下一首。',
     ].map(text => ({ text, time: null }));
 }
 
@@ -340,7 +314,6 @@ function syncImmersivePlayerUI() {
     const song = state.currentSong;
     const title = song ? (song.title || '未知歌曲') : '沉浸式黑胶播放器';
     const artist = song ? (song.artist || '未知歌手') : '打开音乐库选择播放';
-    const source = getSourceLabel(song);
 
     document.body.classList.toggle('is-playing', state.isPlaying);
     if (vinylRecord) vinylRecord.classList.toggle('is-spinning', state.isPlaying);
@@ -348,21 +321,8 @@ function syncImmersivePlayerUI() {
     if (vinylState) vinylState.textContent = state.isPlaying ? 'Playing' : 'Paused';
     if (ambientSongTitle) ambientSongTitle.textContent = song ? title : '选择一首歌开始播放';
     if (heroSongTitle) heroSongTitle.textContent = title;
-    if (heroSongMeta) heroSongMeta.textContent = getSongMeta(song);
-    if (songSource) songSource.textContent = source;
     if (playerTitle) playerTitle.textContent = song ? title : '未选择歌曲';
     if (playerArtist) playerArtist.textContent = song ? artist : '打开音乐库选择播放';
-    if (aboutSongText) {
-        aboutSongText.textContent = song
-            ? `${title} · ${artist}。当前百科位不额外抓取第三方资料，优先保持播放体验安静、稳定。`
-            : '当前页面保留原有搜索、收藏、下载和歌单能力；歌曲百科区域作为轻量信息位，不额外抓取第三方资料。';
-    }
-    if (relatedSongText) {
-        const queueCount = state.queue.length;
-        relatedSongText.textContent = queueCount
-            ? `当前播放队列共有 ${queueCount} 首歌。你可以在音乐库里继续调整收藏、下载和歌单。`
-            : '相关推荐会优先使用当前播放队列。打开音乐库可继续搜索、收藏或管理歌单。';
-    }
 
     renderLyrics(song);
     syncLyricHighlight();

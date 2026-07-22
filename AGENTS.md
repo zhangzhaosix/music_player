@@ -59,16 +59,6 @@
 ---
 
 ## 4. 工具职责
-Superpowers
-负责：
-- 需求分析
-- 任务拆分
-- 技术方案
-- TDD
-- 调试
-- Code Review
-禁止直接编码。
-
 ui-ux-pro-max
 负责：
 - UI设计

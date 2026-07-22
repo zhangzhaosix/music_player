@@ -331,25 +331,12 @@ svg {
     margin-bottom: 34px;
 }
 
-.song-source {
-    margin-bottom: 12px;
-    color: var(--text-muted);
-    font-size: 13px;
-}
-
 .song-info-hero h1 {
-    margin-bottom: 12px;
+    margin-bottom: 0;
     color: var(--text-primary);
     font-size: 26px;
     font-weight: 650;
     line-height: 1.25;
-}
-
-.song-info-hero p {
-    max-width: 62ch;
-    color: var(--text-secondary);
-    font-size: 14px;
-    line-height: 1.7;
 }
 
 .lyric-tabs {
@@ -421,13 +408,6 @@ svg {
     color: rgba(255, 255, 255, 0.72);
     font-size: 13px;
     line-height: 1.7;
-}
-
-.info-panel {
-    max-width: 52ch;
-    color: var(--text-secondary);
-    font-size: 15px;
-    line-height: 2;
 }
 
 .library-backdrop {
