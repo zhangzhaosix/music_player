@@ -72,6 +72,13 @@ const playbackState = {
     trackGainCache: new Map(),
     audioPipeline: null,
     analysisToken: 0,
+    playToken: 0,
+    detailController: null,
+    playableInfoCache: new Map(),
+    playableInfoRequests: new Map(),
+    nextAudioPreloader: null,
+    prefetchToken: 0,
+    seekFeedbackTimer: null,
 };
 const LEVELING_TARGET_RMS = 0.16;
 const LEVELING_ANALYZE_MS = 1200;
@@ -79,6 +86,7 @@ const LEVELING_TIMEOUT_MS = 2500;
 const LEVELING_MIN_GAIN = 0.75;
 const LEVELING_MAX_GAIN = 1.45;
 const LEVELING_PEAK_LIMIT = 0.92;
+const PLAYABLE_INFO_TTL_MS = 5 * 60 * 1000;
 
 // ─── SVG 图标 ──────────────────────────────────────────
 const ICON = {
@@ -1098,16 +1106,14 @@ async function waitForAudioMetadata() {
     await waitForMediaEvent(audio, 'loadedmetadata');
 }
 
-async function startAudioPlayback({ song, shouldPlay, seekTime, saveState }) {
-    try {
-        await waitForAudioMetadata();
-    } catch {
-        return false;
-    }
+async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playToken }) {
+    if (playToken !== playbackState.playToken) return false;
 
-    if (seekTime > 0.5 && seekTime < (audio.duration || Infinity)) {
+    if (seekTime > 0.5) {
         try {
-            audio.currentTime = seekTime;
+            await waitForAudioMetadata();
+            if (playToken !== playbackState.playToken) return false;
+            if (seekTime < (audio.duration || Infinity)) audio.currentTime = seekTime;
         } catch {
             // ponytail: seek fails on some remote streams, playback can still continue from 0.
         }
@@ -1146,27 +1152,16 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState }) {
     }
 }
 
-async function analyzeTrackGain(song, audioUrl) {
-    if (restoreCachedTrackGain(song, audioUrl)) return true;
-
+async function analyzeTrackGain(song, audioUrl, requestToken) {
     const audioPipeline = await ensureAudioPipeline();
     if (!audioPipeline) return false;
 
-    const requestToken = playbackState.analysisToken;
     try {
         if (audioPipeline.context.state === 'suspended') {
             await audioPipeline.context.resume();
         }
-        await waitForAudioMetadata();
-        audioPipeline.gain.gain.value = 0;
-        try {
-            audio.currentTime = 0;
-        } catch {
-            return false;
-        }
-        await audio.play();
         await delay(LEVELING_ANALYZE_MS);
-        if (requestToken !== playbackState.analysisToken) return false;
+        if (requestToken !== playbackState.analysisToken || audio.paused) return false;
 
         const samples = new Float32Array(audioPipeline.analyser.fftSize);
         audioPipeline.analyser.getFloatTimeDomainData(samples);
@@ -1179,12 +1174,6 @@ async function analyzeTrackGain(song, audioUrl) {
         }
 
         if (requestToken !== playbackState.analysisToken) return false;
-        audio.pause();
-        try {
-            audio.currentTime = 0;
-        } catch {
-            return false;
-        }
 
         const rms = Math.sqrt(sumSquares / samples.length);
         if (!Number.isFinite(rms) || rms <= 0.0001 || !Number.isFinite(peak) || peak <= 0) {
@@ -1198,19 +1187,15 @@ async function analyzeTrackGain(song, audioUrl) {
 
         playbackState.trackGain = clamp(nextGain, LEVELING_MIN_GAIN, LEVELING_MAX_GAIN);
         rememberTrackGain(song, audioUrl, playbackState.trackGain);
-        applyEffectiveVolume();
+        const gainParam = audioPipeline.gain.gain;
+        const now = audioPipeline.context.currentTime;
+        const targetGain = playbackState.baseVolume * playbackState.trackGain;
+        gainParam.cancelScheduledValues(now);
+        gainParam.setValueAtTime(gainParam.value, now);
+        gainParam.linearRampToValueAtTime(targetGain, now + 0.15);
         return true;
     } catch {
         return false;
-    } finally {
-        if (requestToken === playbackState.analysisToken) {
-            try {
-                audio.pause();
-            } catch {
-                // ignore pause failures
-            }
-            applyEffectiveVolume();
-        }
     }
 }
 
@@ -1218,18 +1203,22 @@ async function startPlaybackWithLeveling({ song, audioUrl, shouldPlay = true, se
     playbackState.analysisToken += 1;
     playbackState.trackGain = 1;
     applyEffectiveVolume();
+    const nextPreloader = playbackState.nextAudioPreloader;
+    if (nextPreloader?.src === new URL(audioUrl, window.location.href).href) {
+        playbackState.nextAudioPreloader = null;
+        nextPreloader.removeAttribute('src');
+        nextPreloader.load();
+    }
     audio.src = audioUrl;
-
-    if (!shouldPlay) {
-        restoreCachedTrackGain(song, audioUrl);
-        return startAudioPlayback({ song, shouldPlay, seekTime, saveState });
+    const requestToken = playbackState.analysisToken;
+    const playToken = playbackState.playToken;
+    const hasCachedGain = restoreCachedTrackGain(song, audioUrl);
+    const started = await startAudioPlayback({ song, shouldPlay, seekTime, saveState, playToken });
+    if (started && shouldPlay && !hasCachedGain) {
+        // ponytail: analyze the already-playing track; startup must never wait for leveling.
+        void analyzeTrackGain(song, audioUrl, requestToken);
     }
-
-    const leveled = await analyzeTrackGain(song, audioUrl);
-    if (!leveled) {
-        return startAudioPlayback({ song, shouldPlay, seekTime, saveState });
-    }
-    return startAudioPlayback({ song, shouldPlay, seekTime, saveState });
+    return started;
 }
 
 async function playSong(songId) {
@@ -1244,43 +1233,28 @@ async function playSong(songId) {
         return;
     }
 
-    state.currentSong = song;
+    const playToken = ++playbackState.playToken;
+    playbackState.detailController?.abort();
+    audio.pause();
+    state.currentSong = hasRealLyrics(song) ? song : {
+        ...song,
+        lyrics_status: 'loading',
+        lyrics_message: '正在加载真实歌词…',
+    };
     state.isPlaying = false;
     playBtn.innerHTML = ICON.play;
     syncImmersivePlayerUI();
 
-    // 构建播放 URL
-    let audioUrl;
-    if (song.downloaded && song.filename) {
-        const hydrated = await loadOnlineSongInfo(song);
-        song = hydrated.song || song;
-        state.currentSong = song;
-        audioUrl = hydrated.audioUrl || `/api/stream/${encodeURIComponent(song.filename)}`;
-        syncImmersivePlayerUI();
-    } else if (song.url) {
-        // 如果是在线结果，先补全直链再代理播放
-        renderLyrics({
-            ...song,
-            lyrics: [],
-            lyrics_status: 'loading',
-            lyrics_message: '正在加载真实歌词…',
-        });
-        const hydrated = await loadOnlineSongInfo(song);
-        if (!hydrated) {
-            toast('无法获取网易云播放地址', true);
-            syncImmersivePlayerUI();
-            return;
-        }
-        song = hydrated.song;
-        state.currentSong = song;
-        audioUrl = hydrated.audioUrl;
-        syncImmersivePlayerUI();
-    } else if (song.filename) {
-        audioUrl = `/api/stream/${encodeURIComponent(song.filename)}`;
-    } else {
+    const hydrated = await loadOnlineSongInfo(song, { playbackOnly: true });
+    if (playToken !== playbackState.playToken) return;
+    if (!hydrated || !hydrated.audioUrl) {
         toast('无法播放此歌曲', true);
         return;
     }
+    song = hydrated.song || song;
+    state.currentSong = mergeSongInfo(state.currentSong, song);
+    const audioUrl = hydrated.audioUrl;
+    syncImmersivePlayerUI();
 
     const started = await startPlaybackWithLeveling({
         song,
@@ -1289,10 +1263,14 @@ async function playSong(songId) {
         seekTime: 0,
         saveState: true,
     });
+    if (playToken !== playbackState.playToken) return;
     if (!started) {
         toast('播放失败', true);
         syncImmersivePlayerUI();
+        return;
     }
+    void hydrateCurrentSongDetails(song, playToken);
+    void prefetchNextSong();
 }
 
 function findSongInState(songId) {
@@ -1416,21 +1394,35 @@ function getAudioUrl(mp3Url) {
     return "/api/proxy-stream?url=" + encodeURIComponent(url);
 }
 
-async function fetchOnlineSongInfo(songUrl, song = null) {
+function getImmediateAudioUrl(song) {
+    if (!song) return '';
+    if (song.filename) return `/api/stream/${encodeURIComponent(song.filename)}`;
+    const directMp3Url = song.mp3_url
+        || (song.url && /\.mp3(?:[?#].*)?$/i.test(song.url) ? song.url : '');
+    return directMp3Url ? getAudioUrl(directMp3Url) : '';
+}
+
+function getPlayableInfoKey(song) {
+    return String(getSongInfoReference(song) || song?.id || '').trim();
+}
+
+async function fetchOnlineSongInfo(songUrl, song = null, options = {}) {
+    const { playbackOnly = false, signal = null, silent = false } = options;
     try {
         const params = new URLSearchParams({ url: songUrl });
         if (song && song.title) params.set('title', song.title);
         if (song && song.artist) params.set('artist', song.artist);
         if (song && getSongInfoReference(song)) params.set('song_ref', getSongInfoReference(song));
-        const resp = await fetch(`/api/song-info?${params.toString()}`);
+        if (playbackOnly) params.set('playback_only', '1');
+        const resp = await fetch(`/api/song-info?${params.toString()}`, { signal });
         const data = await resp.json();
         if (data.error) {
-            toast(data.error, true);
+            if (!silent) toast(data.error, true);
             return null;
         }
         return data;
-    } catch {
-        toast('鑾峰彇鎾斁淇℃伅澶辫触', true);
+    } catch (error) {
+        if (!silent && error?.name !== 'AbortError') toast('获取播放信息失败', true);
         return null;
     }
 }
@@ -1454,14 +1446,15 @@ function mergeSongInfo(song, info) {
         lyrics_cached: Boolean(info.lyrics_cached),
     };
 
-    if (Array.isArray(info.lyrics)) {
+    if (Array.isArray(info.lyrics) && (info.lyrics.length || !hasRealLyrics(song))) {
         merged.lyrics = info.lyrics;
     }
 
     return merged;
 }
 
-async function loadOnlineSongInfo(song) {
+async function loadOnlineSongInfo(song, options = {}) {
+    const { playbackOnly = true, silent = false } = options;
     if (!song) {
         return {
             song,
@@ -1469,45 +1462,89 @@ async function loadOnlineSongInfo(song) {
         };
     }
 
-    if (song.downloaded && song.filename) {
-        const infoSourceUrl = getSongInfoReference(song);
-        const info = infoSourceUrl ? await fetchOnlineSongInfo(infoSourceUrl, song) : null;
+    const immediateAudioUrl = getImmediateAudioUrl(song);
+    if (immediateAudioUrl) {
         return {
-            song: mergeSongInfo(song, info || song),
-            audioUrl: "/api/stream/" + encodeURIComponent(song.filename),
+            song,
+            audioUrl: immediateAudioUrl,
         };
     }
 
-    const directMp3Url = song.mp3_url || (song.url && /\.mp3(?:[?#].*)?$/i.test(song.url) ? song.url : '');
-    if (directMp3Url) {
-        const infoSourceUrl = getSongInfoReference(song);
-        const info = infoSourceUrl ? await fetchOnlineSongInfo(infoSourceUrl, song) : null;
-        return {
-            song: mergeSongInfo(song, info || {
-                title: song.title,
-                artist: song.artist,
-                mp3_url: directMp3Url,
-                source_url: infoSourceUrl,
-                cover_url: song.cover_url,
-                lyrics: song.lyrics,
-            }),
-            audioUrl: getAudioUrl(directMp3Url),
-        };
-    }
-    if (!song.url) {
+    const songUrl = getSongInfoReference(song);
+    if (!songUrl) {
         return {
             song,
             audioUrl: '',
         };
     }
 
-    const info = await fetchOnlineSongInfo(song.url, song);
+    const cacheKey = getPlayableInfoKey(song);
+    const cached = playbackState.playableInfoCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+        return {
+            song: mergeSongInfo(song, cached.info),
+            audioUrl: getAudioUrl(cached.info.mp3_url),
+        };
+    }
+
+    let requestPromise = playbackState.playableInfoRequests.get(cacheKey);
+    if (!requestPromise) {
+        requestPromise = fetchOnlineSongInfo(songUrl, song, { playbackOnly, silent })
+            .finally(() => playbackState.playableInfoRequests.delete(cacheKey));
+        playbackState.playableInfoRequests.set(cacheKey, requestPromise);
+    }
+    const info = await requestPromise;
     if (!info || !info.mp3_url) return null;
+    playbackState.playableInfoCache.set(cacheKey, {
+        info,
+        expiresAt: Date.now() + PLAYABLE_INFO_TTL_MS,
+    });
 
     return {
         song: mergeSongInfo(song, info),
         audioUrl: getAudioUrl(info.mp3_url),
     };
+}
+
+async function hydrateCurrentSongDetails(song, playToken) {
+    const songUrl = getSongInfoReference(song);
+    if (!songUrl) return;
+
+    const controller = new AbortController();
+    playbackState.detailController = controller;
+    const info = await fetchOnlineSongInfo(songUrl, song, {
+        signal: controller.signal,
+        silent: true,
+    });
+    if (!info || playToken !== playbackState.playToken || state.currentSong?.id !== song.id) return;
+
+    state.currentSong = mergeSongInfo(state.currentSong, info);
+    syncImmersivePlayerUI();
+    savePlaybackState();
+}
+
+async function prefetchNextSong() {
+    const prefetchToken = ++playbackState.prefetchToken;
+    if (state.playMode === 'shuffle' || state.queue.length < 2 || state.queueIndex < 0) return;
+    const nextSong = state.queue[(state.queueIndex + 1) % state.queue.length];
+    if (!nextSong) return;
+    const immediateAudioUrl = getImmediateAudioUrl(nextSong);
+    const prefetched = immediateAudioUrl
+        ? { audioUrl: immediateAudioUrl }
+        : await loadOnlineSongInfo(nextSong, { playbackOnly: true, silent: true });
+    if (!prefetched?.audioUrl || prefetched.audioUrl === audio.currentSrc
+        || prefetchToken !== playbackState.prefetchToken) return;
+
+    const previousPreloader = playbackState.nextAudioPreloader;
+    const nextPreloader = new Audio();
+    nextPreloader.preload = 'metadata';
+    nextPreloader.src = prefetched.audioUrl;
+    playbackState.nextAudioPreloader = nextPreloader;
+    nextPreloader.load();
+    if (previousPreloader) {
+        previousPreloader.removeAttribute('src');
+        previousPreloader.load();
+    }
 }
 
 
@@ -1638,11 +1675,33 @@ audio.addEventListener('timeupdate', () => {
 });
 
 function seekAudio() {
-    if (audio.duration) {
-        audio.currentTime = (progressBar.value / 100) * audio.duration;
-        currentTime.textContent = formatTime(audio.currentTime);
-        syncLyricHighlight();
+    if (!audio.duration) return;
+    const targetTime = (progressBar.value / 100) * audio.duration;
+    currentTime.textContent = formatTime(targetTime);
+    if (Math.abs(audio.currentTime - targetTime) < 0.25) return;
+
+    clearTimeout(playbackState.seekFeedbackTimer);
+    playbackState.seekFeedbackTimer = null;
+    const targetBuffered = Array.from({ length: audio.buffered.length }, (_, index) => ({
+        start: audio.buffered.start(index),
+        end: audio.buffered.end(index),
+    })).some(range => targetTime >= range.start && targetTime <= range.end);
+    if (!targetBuffered) {
+        playbackState.seekFeedbackTimer = window.setTimeout(() => {
+            progressBar.setAttribute('aria-busy', 'true');
+            if (vinylState) vinylState.textContent = 'Buffering';
+        }, 300);
     }
+
+    audio.currentTime = targetTime;
+    syncLyricHighlight();
+}
+
+function clearSeekFeedback() {
+    clearTimeout(playbackState.seekFeedbackTimer);
+    playbackState.seekFeedbackTimer = null;
+    progressBar.removeAttribute('aria-busy');
+    if (vinylState) vinylState.textContent = state.isPlaying ? 'Playing' : 'Paused';
 }
 
 progressBar.addEventListener('input', () => {
@@ -1659,11 +1718,13 @@ progressBar.addEventListener('change', () => {
     updateRangeFill(progressBar);
 });
 
-progressBar.addEventListener('pointerup', () => {
-    seekAudio();
+progressBar.addEventListener('pointercancel', () => {
     state.isSeeking = false;
     updateRangeFill(progressBar);
 });
+
+audio.addEventListener('seeked', clearSeekFeedback);
+audio.addEventListener('canplay', clearSeekFeedback);
 
 volumeBar.addEventListener('input', () => {
     playbackState.baseVolume = Number(volumeBar.value || 0) / 100;
@@ -2446,6 +2507,7 @@ async function restorePlaybackState() {
             artist: song.artist && !isBlockedSongText(song.artist) ? song.artist : '未知歌手',
         };
     }
+    const playToken = ++playbackState.playToken;
     state.currentSong = song;
     playerBar.style.display = 'flex';
     playerTitle.textContent = song.title || '未知歌曲';
@@ -2454,45 +2516,31 @@ async function restorePlaybackState() {
     updatePlayButtons();
     syncImmersivePlayerUI();
 
-    // 构建播放 URL
-    let audioUrl;
-    if (song.downloaded && song.filename) {
-        const hydrated = await loadOnlineSongInfo(song);
-        song = hydrated.song || song;
-        state.currentSong = song;
-        audioUrl = hydrated.audioUrl || `/api/stream/${encodeURIComponent(song.filename)}`;
-        syncImmersivePlayerUI();
-    } else if (song.url) {
-        const hydrated = await loadOnlineSongInfo(song);
-        if (!hydrated) {
-            localStorage.removeItem('music_playback');
-            state.currentSong = null;
-            syncImmersivePlayerUI();
-            return;
-        }
-        song = hydrated.song;
-        state.currentSong = song;
-        audioUrl = hydrated.audioUrl;
-        syncImmersivePlayerUI();
-    } else if (song.filename) {
-        audioUrl = `/api/stream/${encodeURIComponent(song.filename)}`;
-    }
-    if (!audioUrl) {
+    const hydrated = await loadOnlineSongInfo(song, { playbackOnly: true, silent: true });
+    if (playToken !== playbackState.playToken || !hydrated?.audioUrl) {
         localStorage.removeItem('music_playback');
         state.currentSong = null;
         syncImmersivePlayerUI();
         return;
     }
+    song = hydrated.song || song;
+    state.currentSong = mergeSongInfo(state.currentSong, song);
+    const audioUrl = hydrated.audioUrl;
+    syncImmersivePlayerUI();
 
     const seekTime = data.currentTime || 0;
     const shouldPlay = data.wasPlaying;
-    await startPlaybackWithLeveling({
+    const started = await startPlaybackWithLeveling({
         song,
         audioUrl,
         shouldPlay,
         seekTime,
         saveState: false,
     });
+    if (started && playToken === playbackState.playToken) {
+        void hydrateCurrentSongDetails(song, playToken);
+        void prefetchNextSong();
+    }
 }
 
 // ─── 初始化 ─────────────────────────────────────────────

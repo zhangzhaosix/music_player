@@ -46,12 +46,14 @@ HEADERS = {
 
 _qjjlb_session = None
 _musicbox_session = None
+_stream_session = None
 _search_cache = {}
 _search_cache_ttl = 300
 _lyrics_cache = {}
 _lyrics_cache_ttl = 21600
 SEARCH_SOURCES = ('qq', 'kuwo', 'netease')
 DEFAULT_SOURCE_LIMIT = 20
+PROXY_RANGE_CHUNK_SIZE = 128 * 1024
 
 
 def format_upstream_request_error(source_name, error):
@@ -79,7 +81,7 @@ def summarize_search_errors(errors):
 
 
 def get_qjjlb_session():
-    """获取带 cookies 的 qjjlb requests Session"""
+    """复用 qjjlb 上游连接"""
     global _qjjlb_session
     if _qjjlb_session is None:
         _qjjlb_session = requests.Session()
@@ -89,15 +91,11 @@ def get_qjjlb_session():
             'Origin': QJJLB_ORIGIN,
             'Accept': 'application/json, text/plain, */*',
         })
-        try:
-            _qjjlb_session.get(QJJLB_BASE, timeout=10)
-        except Exception:
-            pass
     return _qjjlb_session
 
 
 def get_musicbox_session():
-    """获取带 cookies 的 musicBox requests Session"""
+    """复用 musicBox 上游连接"""
     global _musicbox_session
     if _musicbox_session is None:
         _musicbox_session = requests.Session()
@@ -107,11 +105,18 @@ def get_musicbox_session():
             'Origin': MUSICBOX_ORIGIN,
             'Accept': 'application/json, text/plain, */*',
         })
-        try:
-            _musicbox_session.get(MUSICBOX_WEB_BASE, timeout=10)
-        except Exception:
-            pass
     return _musicbox_session
+
+
+def get_stream_session():
+    """复用音频分段请求连接"""
+    global _stream_session
+    if _stream_session is None:
+        _stream_session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=8)
+        _stream_session.mount('http://', adapter)
+        _stream_session.mount('https://', adapter)
+    return _stream_session
 
 
 def make_search_cache_key(keyword, source_names=None, source_limit=DEFAULT_SOURCE_LIMIT):
@@ -1148,7 +1153,7 @@ def set_lyrics_state(info, song_ref='', lyrics_source='', lyrics_error=''):
     return info
 
 
-def resolve_qjjlb_song_info(song_url):
+def resolve_qjjlb_song_info(song_url, include_lyrics=True):
     parsed = urllib.parse.urlparse(str(song_url).strip())
     if (parsed.scheme or '').lower() != 'qjjlb':
         return None, None
@@ -1175,12 +1180,14 @@ def resolve_qjjlb_song_info(song_url):
 
         detail = detail_data[0] if isinstance(detail_data[0], dict) else {}
         lyric_text = ''
-        lyric_text, lyric_err = fetch_musicbox_text(
-            f'{MUSICBOX_API_BASE}/meting/',
-            params={'server': 'netease', 'type': 'lrc', 'id': song_id},
-        )
-        if lyric_err:
-            lyric_text = ''
+        lyric_err = ''
+        if include_lyrics:
+            lyric_text, lyric_err = fetch_musicbox_text(
+                f'{MUSICBOX_API_BASE}/meting/',
+                params={'server': 'netease', 'type': 'lrc', 'id': song_id},
+            )
+            if lyric_err:
+                lyric_text = ''
 
         info = {
             'title': detail.get('name', '未知歌曲') or '未知歌曲',
@@ -1191,7 +1198,11 @@ def resolve_qjjlb_song_info(song_url):
             'lyric_id': song_id,
             'lyrics': parse_lrc_text(lyric_text),
         }
-        return set_lyrics_state(info, song_url, 'netease', lyric_err), None
+        return (
+            set_lyrics_state(info, song_url, 'netease', lyric_err)
+            if include_lyrics
+            else info
+        ), None
 
     if provider == 'qq':
         mid = params.get('mid', '').strip()
@@ -1231,11 +1242,11 @@ def resolve_qjjlb_song_info(song_url):
             'source_url': detail_data.get('song_h5_url') or f'https://y.qq.com/n/ryqq/songDetail/{mid}',
             'cover_url': detail_data.get('album_pic') or detail_data.get('singer_pic') or '',
             'lyric_id': mid,
-            'lyrics': parse_lrc_text(lyric_text),
+            'lyrics': parse_lrc_text(lyric_text) if include_lyrics else [],
         }
         if quality_label:
             info['quality_label'] = quality_label
-        return set_lyrics_state(info, song_url, 'qq'), None
+        return (set_lyrics_state(info, song_url, 'qq') if include_lyrics else info), None
 
     if provider == 'kuwo':
         song_id = params.get('id', '').strip()
@@ -1257,7 +1268,7 @@ def resolve_qjjlb_song_info(song_url):
 
         lyric_payload = payload.get('lyric') or payload.get('lrc') or ''
         lyric_error = ''
-        if re.match(r'^https?://', str(lyric_payload).strip(), flags=re.IGNORECASE):
+        if include_lyrics and re.match(r'^https?://', str(lyric_payload).strip(), flags=re.IGNORECASE):
             lyric_payload, lyric_error = fetch_qjjlb_json(str(lyric_payload).strip())
             if lyric_error:
                 lyric_payload = ''
@@ -1269,9 +1280,13 @@ def resolve_qjjlb_song_info(song_url):
             'source_url': payload.get('song_url') or payload.get('url', '') or f'https://www.kuwo.cn/play_detail/{song_id}',
             'cover_url': payload.get('pic', '') or '',
             'lyric_id': song_id,
-            'lyrics': parse_lrc_text(lyric_payload),
+            'lyrics': parse_lrc_text(lyric_payload) if include_lyrics else [],
         }
-        return set_lyrics_state(info, song_url, 'kuwo', lyric_error), None
+        return (
+            set_lyrics_state(info, song_url, 'kuwo', lyric_error)
+            if include_lyrics
+            else info
+        ), None
 
     return None, f'不支持的 qjjlb 来源: {provider}'
 
@@ -1312,7 +1327,7 @@ def resolve_download_target(song_url, source_url=''):
     return None, None, last_err or '该歌曲链接已不再支持，请重新搜索'
 
 
-def get_song_info(song_url):
+def get_song_info(song_url, include_lyrics=True):
     if not song_url:
         return {'error': '无法提取歌曲链接'}, '无法提取歌曲链接'
 
@@ -1334,7 +1349,11 @@ def get_song_info(song_url):
     qjjlb_info = None
     qjjlb_err = None
     if normalized_url.startswith('qjjlb://'):
-        qjjlb_info, qjjlb_err = resolve_qjjlb_song_info(normalized_url)
+        qjjlb_info, qjjlb_err = (
+            resolve_qjjlb_song_info(normalized_url)
+            if include_lyrics
+            else resolve_qjjlb_song_info(normalized_url, include_lyrics=False)
+        )
         if qjjlb_info:
             return qjjlb_info, None
         return {'error': qjjlb_err or '无效的 qjjlb 链接'}, qjjlb_err or '无效的 qjjlb 链接'
@@ -1346,7 +1365,11 @@ def get_song_info(song_url):
             return {'error': '无法提取歌曲 ID'}, '无法提取歌曲 ID'
 
         qjjlb_ref = build_qjjlb_ref('netease', id=song_id)
-        qjjlb_info, qjjlb_err = resolve_qjjlb_song_info(qjjlb_ref)
+        qjjlb_info, qjjlb_err = (
+            resolve_qjjlb_song_info(qjjlb_ref)
+            if include_lyrics
+            else resolve_qjjlb_song_info(qjjlb_ref, include_lyrics=False)
+        )
         if qjjlb_info:
             return qjjlb_info, None
         return {'error': qjjlb_err or '网易云歌曲解析失败'}, qjjlb_err or '网易云歌曲解析失败'
@@ -1508,6 +1531,7 @@ def api_song_info():
     song_ref = request.args.get('song_ref', '').strip()
     title = request.args.get('title', '').strip()
     artist = request.args.get('artist', '').strip()
+    playback_only = request.args.get('playback_only', '').strip() == '1'
     if not url:
         return jsonify({'error': '缺少歌曲链接'}), 400
 
@@ -1530,6 +1554,8 @@ def api_song_info():
             'lyrics': [],
             'song_ref': song_ref,
         }
+        if playback_only:
+            return jsonify(local_info)
         cached_lyrics = get_cached_lyrics(song_ref)
         if cached_lyrics:
             local_info.update({
@@ -1557,8 +1583,14 @@ def api_song_info():
         ))
         return jsonify(local_info)
 
-    info, err = get_song_info(lookup_url)
+    info, err = (
+        get_song_info(lookup_url, include_lyrics=False)
+        if playback_only
+        else get_song_info(lookup_url)
+    )
     if info and not err and info.get('mp3_url'):
+        if playback_only:
+            return jsonify(info)
         info.update(resolve_song_lyrics(
             song_ref,
             title or info.get('title', ''),
@@ -1684,23 +1716,51 @@ def api_proxy_stream():
         })
     range_header = request.headers.get('Range')
     if range_header:
-        stream_headers['Range'] = range_header
+        single_range = re.fullmatch(r'bytes=(\d+)-(\d*)', range_header.strip(), flags=re.IGNORECASE)
+        if single_range:
+            range_start = int(single_range.group(1))
+            requested_end = int(single_range.group(2)) if single_range.group(2) else None
+            range_end = range_start + PROXY_RANGE_CHUNK_SIZE - 1
+            if requested_end is not None:
+                range_end = min(range_end, requested_end)
+            stream_headers['Range'] = f'bytes={range_start}-{range_end}'
+        else:
+            stream_headers['Range'] = range_header
+    if_range_header = request.headers.get('If-Range')
+    if if_range_header:
+        stream_headers['If-Range'] = if_range_header
 
+    req = None
     try:
-        req = requests.get(mp3_url, headers=stream_headers, stream=True, timeout=30)
+        req = get_stream_session().get(
+            mp3_url,
+            headers=stream_headers,
+            stream=True,
+            timeout=(4, 8),
+        )
         req.raise_for_status()
 
         def generate():
-            for chunk in req.iter_content(chunk_size=8192):
-                if chunk:
-                    yield chunk
+            try:
+                for chunk in req.iter_content(chunk_size=16384):
+                    if chunk:
+                        yield chunk
+            finally:
+                req.close()
 
-        headers = {
-            'Accept-Ranges': 'bytes',
-        }
-        for header in ('Content-Length', 'Content-Range'):
+        headers = {}
+        for header in (
+            'Accept-Ranges',
+            'Content-Length',
+            'Content-Range',
+            'ETag',
+            'Last-Modified',
+            'Cache-Control',
+        ):
             if header in req.headers:
                 headers[header] = req.headers[header]
+        if req.status_code == 206 and 'Accept-Ranges' not in headers:
+            headers['Accept-Ranges'] = 'bytes'
 
         return Response(
             stream_with_context(generate()),
@@ -1709,6 +1769,8 @@ def api_proxy_stream():
             headers=headers,
         )
     except requests.RequestException as e:
+        if req is not None:
+            req.close()
         return jsonify({'error': f'代理播放失败: {str(e)}'}), 502
 
 

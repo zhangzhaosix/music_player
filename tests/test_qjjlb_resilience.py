@@ -1105,6 +1105,7 @@ class QjjlbResilienceTests(unittest.TestCase):
         class FakeResponse:
             status_code = 200
             headers = {'content-type': 'audio/mpeg'}
+            closed = False
 
             def raise_for_status(self):
                 return None
@@ -1112,17 +1113,23 @@ class QjjlbResilienceTests(unittest.TestCase):
             def iter_content(self, chunk_size=8192):
                 yield b'fake-mp3-bytes'
 
-        def fake_get(url, headers=None, stream=None, timeout=None):
-            seen['url'] = url
-            seen['headers'] = headers
-            seen['stream'] = stream
-            seen['timeout'] = timeout
-            return FakeResponse()
+            def close(self):
+                self.closed = True
 
-        with patch.object(app.requests, 'get', side_effect=fake_get):
+        class FakeSession:
+            def get(self, url, headers=None, stream=None, timeout=None):
+                seen['url'] = url
+                seen['headers'] = headers
+                seen['stream'] = stream
+                seen['timeout'] = timeout
+                seen['response'] = FakeResponse()
+                return seen['response']
+
+        with patch.object(app, 'get_stream_session', return_value=FakeSession()):
             resp = client.get(
                 '/api/proxy-stream',
                 query_string={'url': 'https://fy-musicbox-api.mu-jie.cc/meting/?server=netease&type=url&id=1394167216'},
+                buffered=True,
             )
 
         self.assertEqual(resp.status_code, 200)
@@ -1132,7 +1139,122 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(seen['headers']['Accept'], '*/*')
         self.assertEqual(seen['headers']['User-Agent'], 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
         self.assertTrue(seen['stream'])
-        self.assertEqual(seen['timeout'], 30)
+        self.assertEqual(seen['timeout'], (4, 8))
+        self.assertTrue(seen['response'].closed)
+
+    def test_api_proxy_stream_forwards_range_headers_and_closes_upstream(self):
+        client = app.app.test_client()
+        seen = {}
+
+        class FakeResponse:
+            status_code = 206
+            headers = {
+                'content-type': 'audio/mpeg',
+                'Content-Length': '4',
+                'Content-Range': 'bytes 10-13/100',
+                'ETag': '"track-v1"',
+            }
+
+            def raise_for_status(self):
+                return None
+
+            def iter_content(self, chunk_size=8192):
+                seen['chunk_size'] = chunk_size
+                yield b'data'
+
+            def close(self):
+                seen['closed'] = True
+
+        class FakeSession:
+            def get(self, url, headers=None, stream=None, timeout=None):
+                seen['headers'] = headers
+                return FakeResponse()
+
+        with patch.object(app, 'get_stream_session', return_value=FakeSession()):
+            resp = client.get(
+                '/api/proxy-stream',
+                query_string={'url': 'https://audio.example.test/song.mp3'},
+                headers={'Range': 'bytes=10-13', 'If-Range': '"track-v1"'},
+                buffered=True,
+            )
+
+        self.assertEqual(resp.status_code, 206)
+        self.assertEqual(resp.data, b'data')
+        self.assertEqual(seen['headers']['Range'], 'bytes=10-13')
+        self.assertEqual(seen['headers']['If-Range'], '"track-v1"')
+        self.assertEqual(resp.headers['Content-Range'], 'bytes 10-13/100')
+        self.assertEqual(resp.headers['Accept-Ranges'], 'bytes')
+        self.assertEqual(resp.headers['ETag'], '"track-v1"')
+        self.assertEqual(seen['chunk_size'], 16384)
+        self.assertTrue(seen['closed'])
+
+    def test_api_proxy_stream_caps_open_ended_ranges(self):
+        client = app.app.test_client()
+        seen = {}
+
+        class FakeResponse:
+            status_code = 206
+            headers = {
+                'content-type': 'audio/mpeg',
+                'Content-Length': str(app.PROXY_RANGE_CHUNK_SIZE),
+                'Content-Range': f'bytes 10-{10 + app.PROXY_RANGE_CHUNK_SIZE - 1}/1000000',
+            }
+
+            def raise_for_status(self):
+                return None
+
+            def iter_content(self, chunk_size=8192):
+                yield b'data'
+
+            def close(self):
+                return None
+
+        class FakeSession:
+            def get(self, url, headers=None, stream=None, timeout=None):
+                seen['range'] = headers.get('Range')
+                return FakeResponse()
+
+        with patch.object(app, 'get_stream_session', return_value=FakeSession()):
+            resp = client.get(
+                '/api/proxy-stream',
+                query_string={'url': 'https://audio.example.test/song.mp3'},
+                headers={'Range': 'bytes=10-'},
+                buffered=True,
+            )
+
+        self.assertEqual(resp.status_code, 206)
+        self.assertEqual(seen['range'], f'bytes=10-{10 + app.PROXY_RANGE_CHUNK_SIZE - 1}')
+
+        with patch.object(app, 'get_stream_session', return_value=FakeSession()):
+            resp = client.get(
+                '/api/proxy-stream',
+                query_string={'url': 'https://audio.example.test/song.mp3'},
+                headers={'Range': 'bytes=10-999999'},
+                buffered=True,
+            )
+
+        self.assertEqual(resp.status_code, 206)
+        self.assertEqual(seen['range'], f'bytes=10-{10 + app.PROXY_RANGE_CHUNK_SIZE - 1}')
+
+    def test_api_song_info_playback_only_skips_lyrics_resolution(self):
+        client = app.app.test_client()
+        resolved = {
+            'title': '测试歌曲',
+            'artist': '测试歌手',
+            'mp3_url': 'https://audio.example.test/song.mp3',
+            'lyrics': [],
+        }
+
+        with patch.object(app, 'get_song_info', return_value=(resolved, None)) as get_info, \
+             patch.object(app, 'resolve_song_lyrics', side_effect=AssertionError('lyrics should be deferred')):
+            resp = client.get('/api/song-info', query_string={
+                'url': 'qjjlb://netease?id=1',
+                'playback_only': '1',
+            })
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()['mp3_url'], resolved['mp3_url'])
+        get_info.assert_called_once_with('qjjlb://netease?id=1', include_lyrics=False)
 
     def test_migu_qjjlb_links_are_not_supported(self):
         info, err = app.get_song_info('qjjlb://migu?kw=test&n=1')
