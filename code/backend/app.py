@@ -48,6 +48,8 @@ _qjjlb_session = None
 _musicbox_session = None
 _search_cache = {}
 _search_cache_ttl = 300
+_lyrics_cache = {}
+_lyrics_cache_ttl = 21600
 SEARCH_SOURCES = ('qq', 'kuwo', 'netease')
 DEFAULT_SOURCE_LIMIT = 20
 
@@ -135,17 +137,47 @@ def store_search_results(keyword, results, source_names=None, source_limit=DEFAU
 
 
 def parse_lrc_text(lrc_text):
+    if isinstance(lrc_text, dict):
+        for key in ('song_lyric', 'lrc', 'lyric', 'lrclist', 'content', 'text', 'data'):
+            value = lrc_text.get(key)
+            if value not in (None, '', [], {}):
+                return parse_lrc_text(value)
+        return []
+    if isinstance(lrc_text, list):
+        lyrics = []
+        for item in lrc_text:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get('text') or item.get('lineLyric') or item.get('line') or '').strip()
+            if not text:
+                continue
+            raw_time = item.get('time')
+            try:
+                item_time = float(raw_time) if raw_time not in (None, '') else None
+            except (TypeError, ValueError):
+                item_time = None
+            lyrics.append({'time': item_time, 'text': text})
+        return lyrics
+
     lyrics = []
     if not lrc_text:
         return lyrics
 
+    plain_lines = []
     for raw_line in str(lrc_text).splitlines():
         line = raw_line.strip()
         if not line:
             continue
         timestamps = list(re.finditer(r'\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]', line))
         text = re.sub(r'^(?:\[\d{2}:\d{2}(?:\.\d{1,3})?\])+\s*', '', line).strip()
-        if not text or not timestamps:
+        if not timestamps:
+            if (
+                not re.match(r'^\[[a-zA-Z]+:.*\]$', line)
+                and not re.match(r'^https?://', line, flags=re.IGNORECASE)
+            ):
+                plain_lines.append(line)
+            continue
+        if not text:
             continue
 
         for match in timestamps:
@@ -162,7 +194,9 @@ def parse_lrc_text(lrc_text):
                 'text': text,
             })
 
-    return sorted(lyrics, key=lambda item: item['time'])
+    if lyrics:
+        return sorted(lyrics, key=lambda item: item['time'])
+    return [{'time': None, 'text': line} for line in plain_lines]
 
 
 def build_qjjlb_ref(provider, **params):
@@ -184,11 +218,66 @@ def qjjlb_song_identity_key_from_url(url):
     return f'qjjlb:{provider}:{song_id}'
 
 
+def qjjlb_song_ref_from_url(url):
+    value = str(url or '').strip()
+    return value if qjjlb_song_identity_key_from_url(value) else ''
+
+
+def song_ref_from_song(song):
+    if not isinstance(song, dict):
+        return ''
+
+    for key in ('song_ref', 'url', 'song_url', 'resolved_url', 'source_url'):
+        song_ref = qjjlb_song_ref_from_url(song.get(key, ''))
+        if song_ref:
+            return song_ref
+
+    provider = str(song.get('type', '') or '').strip().lower()
+    song_id = str(song.get('songid', '') or song.get('lyric_id', '') or '').strip()
+    if provider in SEARCH_SOURCES and song_id:
+        id_key = 'mid' if provider == 'qq' else 'id'
+        return build_qjjlb_ref(provider, **{id_key: song_id})
+    return ''
+
+
+def has_lyrics_text(lyrics):
+    return isinstance(lyrics, list) and any(
+        isinstance(item, dict) and str(item.get('text', '') or '').strip()
+        for item in lyrics
+    )
+
+
+def get_cached_lyrics(song_ref):
+    cache_key = qjjlb_song_identity_key_from_url(song_ref)
+    cached = _lyrics_cache.get(cache_key) if cache_key else None
+    if not cached:
+        return None
+    if time.time() - cached['ts'] > _lyrics_cache_ttl:
+        _lyrics_cache.pop(cache_key, None)
+        return None
+    return {
+        'lyrics': [dict(item) for item in cached['lyrics']],
+        'lyrics_source': cached.get('lyrics_source', ''),
+        'lyrics_cached': True,
+    }
+
+
+def store_cached_lyrics(song_ref, lyrics, lyrics_source=''):
+    cache_key = qjjlb_song_identity_key_from_url(song_ref)
+    if not cache_key or not has_lyrics_text(lyrics):
+        return
+    _lyrics_cache[cache_key] = {
+        'ts': time.time(),
+        'lyrics': [dict(item) for item in lyrics],
+        'lyrics_source': str(lyrics_source or '').strip(),
+    }
+
+
 def song_identity_key(song):
     if not isinstance(song, dict):
         return ''
 
-    for key in ('url', 'source_url', 'song_url', 'resolved_url'):
+    for key in ('song_ref', 'url', 'source_url', 'song_url', 'resolved_url'):
         identity = qjjlb_song_identity_key_from_url(song.get(key, ''))
         if identity:
             return identity
@@ -235,6 +324,10 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
         cover_url = 'https:' + cover_url
 
     song_id = item.get('songid', item.get('id', item.get('song_mid', item.get('mid', item.get('rid', '')))))
+    song_ref = qjjlb_song_ref_from_url(url) or qjjlb_song_ref_from_url(source_url)
+    if not song_ref and song_id:
+        id_key = 'mid' if provider == 'qq' else 'id'
+        song_ref = build_qjjlb_ref(provider, **{id_key: song_id})
     identity_key = qjjlb_song_identity_key_from_url(url) or qjjlb_song_identity_key_from_url(source_url)
     if not identity_key and song_id:
         identity_key = f'qjjlb:{provider}:{song_id}'
@@ -251,6 +344,7 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
         'cover_url': cover_url,
         'type': provider,
         'songid': song_id,
+        'song_ref': song_ref,
         'lyrics': parse_lrc_text(lyrics_text or item.get('lrc', '') or item.get('lyric', '') or ''),
     }
 
@@ -371,6 +465,7 @@ def make_musicbox_netease_song(item):
         'cover_url': cover_url,
         'type': 'netease',
         'songid': song_id,
+        'song_ref': qjjlb_ref,
         'lyrics': [],
     }
 
@@ -642,6 +737,7 @@ def find_existing_downloaded_song(song_url='', source_url='', title='', artist='
             continue
         record_urls = {
             url for url in (
+                str(record.get('song_ref', '') or '').strip(),
                 str(record.get('source_url', '') or '').strip(),
                 str(record.get('resolved_url', '') or '').strip(),
                 str(record.get('song_url', '') or '').strip(),
@@ -701,9 +797,15 @@ def hydrate_song_entry(song, favorites_by_id=None):
                 hydrated['artist'] = record.get('artist') or hydrated.get('artist') or '未知歌手'
             hydrated['url'] = hydrated.get('url') or record.get('song_url') or record.get('source_url') or ''
             hydrated['source_url'] = hydrated.get('source_url') or record.get('source_url') or record.get('song_url') or ''
+            hydrated['song_ref'] = (
+                hydrated.get('song_ref')
+                or record.get('song_ref')
+                or song_ref_from_song(record)
+            )
     else:
         hydrated['downloaded'] = bool(hydrated.get('downloaded') and hydrated.get('filename'))
 
+    hydrated['song_ref'] = hydrated.get('song_ref') or song_ref_from_song(hydrated)
     hydrated.setdefault('id', song_id or hydrated.get('filename', '') or hydrated.get('url', ''))
     hydrated.setdefault('title', '未知歌曲')
     hydrated.setdefault('artist', '未知歌手')
@@ -736,7 +838,7 @@ def search_local_songs(keyword):
     return results
 
 
-def save_download_record(*, filename, title='', artist='', song_url='', source_url='', resolved_url=''):
+def save_download_record(*, filename, title='', artist='', song_url='', source_url='', resolved_url='', song_ref=''):
     filename = str(filename or '').strip()
     if not filename:
         return
@@ -749,6 +851,11 @@ def save_download_record(*, filename, title='', artist='', song_url='', source_u
         'song_url': str(song_url or '').strip(),
         'source_url': str(source_url or '').strip(),
         'resolved_url': str(resolved_url or '').strip(),
+        'song_ref': str(song_ref or '').strip() or song_ref_from_song({
+            'song_url': song_url,
+            'source_url': source_url,
+            'resolved_url': resolved_url,
+        }),
         'downloaded_at': datetime.now().isoformat(),
     })
     write_download_index(records)
@@ -809,14 +916,7 @@ def is_supported_song_url(song_url):
 
 
 def has_real_lyrics_entries(lyrics):
-    if not isinstance(lyrics, list):
-        return False
-    for item in lyrics:
-        if not isinstance(item, dict):
-            continue
-        if str(item.get('text', '') or '').strip():
-            return True
-    return False
+    return has_lyrics_text(lyrics)
 
 
 def normalize_song_match_text(text):
@@ -1024,6 +1124,30 @@ def extract_song_id(song_url):
 
     return None
 
+
+def set_lyrics_state(info, song_ref='', lyrics_source='', lyrics_error=''):
+    info = dict(info or {})
+    song_ref = qjjlb_song_ref_from_url(song_ref) or song_ref_from_song(info)
+    if song_ref:
+        info['song_ref'] = song_ref
+
+    lyrics = info.get('lyrics') if isinstance(info.get('lyrics'), list) else []
+    info['lyrics'] = lyrics
+    info['lyrics_source'] = str(lyrics_source or '').strip()
+    info['lyrics_cached'] = False
+    if has_real_lyrics_entries(lyrics):
+        info['lyrics_status'] = 'ok'
+        info['lyrics_message'] = ''
+        store_cached_lyrics(song_ref, lyrics, lyrics_source)
+    elif lyrics_error:
+        info['lyrics_status'] = 'source_error'
+        info['lyrics_message'] = '歌词服务暂时不可用，播放不受影响；下次播放会自动重试。'
+    else:
+        info['lyrics_status'] = 'not_found'
+        info['lyrics_message'] = '暂未找到歌词，可能为纯音乐或歌词源尚未收录。'
+    return info
+
+
 def resolve_qjjlb_song_info(song_url):
     parsed = urllib.parse.urlparse(str(song_url).strip())
     if (parsed.scheme or '').lower() != 'qjjlb':
@@ -1067,7 +1191,7 @@ def resolve_qjjlb_song_info(song_url):
             'lyric_id': song_id,
             'lyrics': parse_lrc_text(lyric_text),
         }
-        return info, None
+        return set_lyrics_state(info, song_url, 'netease', lyric_err), None
 
     if provider == 'qq':
         mid = params.get('mid', '').strip()
@@ -1111,7 +1235,7 @@ def resolve_qjjlb_song_info(song_url):
         }
         if quality_label:
             info['quality_label'] = quality_label
-        return info, None
+        return set_lyrics_state(info, song_url, 'qq'), None
 
     if provider == 'kuwo':
         song_id = params.get('id', '').strip()
@@ -1131,6 +1255,13 @@ def resolve_qjjlb_song_info(song_url):
         if not isinstance(payload, dict):
             return None, 'qjjlb 酷我返回了无效数据'
 
+        lyric_payload = payload.get('lyric') or payload.get('lrc') or ''
+        lyric_error = ''
+        if re.match(r'^https?://', str(lyric_payload).strip(), flags=re.IGNORECASE):
+            lyric_payload, lyric_error = fetch_qjjlb_json(str(lyric_payload).strip())
+            if lyric_error:
+                lyric_payload = ''
+
         info = {
             'title': payload.get('name', '未知歌曲') or '未知歌曲',
             'artist': payload.get('artist', '未知歌手') or '未知歌手',
@@ -1138,9 +1269,9 @@ def resolve_qjjlb_song_info(song_url):
             'source_url': payload.get('song_url') or payload.get('url', '') or f'https://www.kuwo.cn/play_detail/{song_id}',
             'cover_url': payload.get('pic', '') or '',
             'lyric_id': song_id,
-            'lyrics': parse_lrc_text(payload.get('lyric', '') or ''),
+            'lyrics': parse_lrc_text(lyric_payload),
         }
-        return info, None
+        return set_lyrics_state(info, song_url, 'kuwo', lyric_error), None
 
     return None, f'不支持的 qjjlb 来源: {provider}'
 
@@ -1224,6 +1355,101 @@ def get_song_info(song_url):
     return {'error': err}, err
 
 
+def find_fallback_lyrics(title, artist, excluded_song_ref=''):
+    query = ' '.join(part for part in (str(title or '').strip(), str(artist or '').strip()) if part)
+    if not query:
+        return None, ''
+
+    search_results = search_qjjlb(query, limit=15, source_names=SEARCH_SOURCES, source_limit=5)
+    if isinstance(search_results, tuple):
+        payload, _ = search_results
+        return None, str(payload.get('error', '') if isinstance(payload, dict) else payload)
+
+    ranked = sorted(
+        (
+            (score_song_match(candidate, title, artist), candidate)
+            for candidate in (search_results or [])
+            if isinstance(candidate, dict)
+        ),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    excluded_key = qjjlb_song_identity_key_from_url(excluded_song_ref)
+    last_error = ''
+    for score, candidate in ranked[:5]:
+        if score < 13:
+            break
+        candidate_ref = song_ref_from_song(candidate)
+        if excluded_key and qjjlb_song_identity_key_from_url(candidate_ref) == excluded_key:
+            continue
+        if has_real_lyrics_entries(candidate.get('lyrics')):
+            return set_lyrics_state(candidate, candidate_ref, candidate.get('type', '')), None
+        lookup_url = candidate_ref or str(candidate.get('url', '') or candidate.get('source_url', '')).strip()
+        if not lookup_url:
+            continue
+        info, err = get_song_info(lookup_url)
+        if info and not err and has_real_lyrics_entries(info.get('lyrics')):
+            return info, None
+        if err:
+            last_error = err
+    return None, last_error
+
+
+def resolve_song_lyrics(song_ref='', title='', artist='', primary_info=None, primary_error=''):
+    song_ref = qjjlb_song_ref_from_url(song_ref) or song_ref_from_song(primary_info or {})
+    if primary_info and has_real_lyrics_entries(primary_info.get('lyrics')):
+        source = primary_info.get('lyrics_source') or urllib.parse.urlparse(song_ref).netloc
+        result = set_lyrics_state(primary_info, song_ref, source)
+        return {
+            key: result.get(key)
+            for key in ('lyrics', 'lyrics_status', 'lyrics_message', 'lyrics_source', 'lyrics_cached', 'song_ref')
+            if key in result
+        }
+
+    cached = get_cached_lyrics(song_ref)
+    if cached:
+        return {
+            **cached,
+            'lyrics_status': 'ok',
+            'lyrics_message': '',
+            'song_ref': song_ref,
+        }
+
+    fallback_info, fallback_error = find_fallback_lyrics(title, artist, song_ref)
+    if fallback_info and has_real_lyrics_entries(fallback_info.get('lyrics')):
+        lyrics = fallback_info.get('lyrics', [])
+        source = fallback_info.get('lyrics_source') or urllib.parse.urlparse(
+            song_ref_from_song(fallback_info)
+        ).netloc
+        store_cached_lyrics(song_ref, lyrics, source)
+        return {
+            'lyrics': lyrics,
+            'lyrics_status': 'ok',
+            'lyrics_message': '',
+            'lyrics_source': source,
+            'lyrics_cached': False,
+            'song_ref': song_ref or song_ref_from_song(fallback_info),
+        }
+
+    source_failed = bool(
+        primary_error
+        or fallback_error
+        or (primary_info and primary_info.get('lyrics_status') == 'source_error')
+    )
+    return {
+        'lyrics': [],
+        'lyrics_status': 'source_error' if source_failed else 'not_found',
+        'lyrics_message': (
+            '歌词服务暂时不可用，播放不受影响；下次播放会自动重试。'
+            if source_failed
+            else '暂未找到歌词，可能为纯音乐或歌词源尚未收录。'
+        ),
+        'lyrics_source': '',
+        'lyrics_cached': False,
+        'song_ref': song_ref,
+    }
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -1279,12 +1505,18 @@ def api_search():
 def api_song_info():
     """获取歌曲详情（含 MP3 链接）"""
     url = request.args.get('url', '').strip()
+    song_ref = request.args.get('song_ref', '').strip()
     title = request.args.get('title', '').strip()
     artist = request.args.get('artist', '').strip()
     if not url:
         return jsonify({'error': '缺少歌曲链接'}), 400
 
-    existing_filename = find_existing_downloaded_song(url, url, title, artist)
+    song_ref = qjjlb_song_ref_from_url(song_ref) or song_ref_from_song({
+        'url': url,
+        'song_ref': song_ref,
+    })
+    lookup_url = song_ref or url
+    existing_filename = find_existing_downloaded_song(lookup_url, url, title, artist)
     if existing_filename:
         local_info = {
             'title': title or os.path.splitext(existing_filename)[0],
@@ -1296,37 +1528,62 @@ def api_song_info():
             'cover_url': '',
             'lyric_id': '',
             'lyrics': [],
+            'song_ref': song_ref,
         }
+        cached_lyrics = get_cached_lyrics(song_ref)
+        if cached_lyrics:
+            local_info.update({
+                **cached_lyrics,
+                'lyrics_status': 'ok',
+                'lyrics_message': '',
+            })
+            return jsonify(local_info)
         try:
-            online_info, online_err = get_song_info(url)
+            online_info, online_err = get_song_info(lookup_url)
         except Exception:
             online_info, online_err = None, '无法获取在线歌词'
-        if isinstance(online_info, dict) and not online_err:
+        if isinstance(online_info, dict):
             local_info['title'] = online_info.get('title') or local_info['title']
             local_info['artist'] = online_info.get('artist') or local_info['artist']
             local_info['source_url'] = online_info.get('source_url') or local_info['source_url']
             local_info['cover_url'] = online_info.get('cover_url') or local_info['cover_url']
             local_info['lyric_id'] = online_info.get('lyric_id') or local_info['lyric_id']
-            if has_real_lyrics_entries(online_info.get('lyrics')):
-                local_info['lyrics'] = online_info.get('lyrics')
+        local_info.update(resolve_song_lyrics(
+            song_ref,
+            title or local_info['title'],
+            artist or local_info['artist'],
+            primary_info=online_info,
+            primary_error=online_err,
+        ))
         return jsonify(local_info)
 
-    info, err = get_song_info(url)
-    if info and not err and has_real_lyrics_entries(info.get('lyrics')):
+    info, err = get_song_info(lookup_url)
+    if info and not err and info.get('mp3_url'):
+        info.update(resolve_song_lyrics(
+            song_ref,
+            title or info.get('title', ''),
+            artist or info.get('artist', ''),
+            primary_info=info,
+        ))
         return jsonify(info)
 
     if title or artist:
         fallback_info, fallback_err = resolve_favorite_song_info({
             'title': title,
             'artist': artist,
-            'url': url,
-            'source_url': url,
+            'url': lookup_url,
+            'source_url': lookup_url,
             'lyrics': info.get('lyrics') if info else [],
         })
         if fallback_info:
+            fallback_ref = song_ref_from_song(fallback_info) or song_ref
+            fallback_info.update(resolve_song_lyrics(
+                fallback_ref,
+                title or fallback_info.get('title', ''),
+                artist or fallback_info.get('artist', ''),
+                primary_info=fallback_info,
+            ))
             return jsonify(fallback_info)
-        if info and not err and info.get('mp3_url'):
-            return jsonify(info)
         return jsonify({'error': fallback_err or err or '无法获取歌曲详情'}), 502
 
     if err:
@@ -1461,6 +1718,7 @@ def api_download():
     data = request.get_json()
     song_url = data.get('url', '').strip()
     source_url = data.get('source_url', '').strip()
+    song_ref = data.get('song_ref', '').strip()
     title = data.get('title', '').strip()
     artist = data.get('artist', '').strip()
 
@@ -1477,7 +1735,11 @@ def api_download():
             'message': '歌曲已存在本地',
         })
 
-    mp3_url, resolved_url, err = resolve_download_target(song_url, source_url)
+    song_ref = qjjlb_song_ref_from_url(song_ref) or song_ref_from_song({
+        'url': song_url,
+        'source_url': source_url,
+    })
+    mp3_url, resolved_url, err = resolve_download_target(song_url, song_ref or source_url)
     if err:
         return jsonify({'error': f'获取下载链接失败: {err}'}), 502
     resolved_url = resolved_url or song_url
@@ -1521,6 +1783,7 @@ def api_download():
             song_url=song_url,
             source_url=source_url,
             resolved_url=resolved_url or mp3_url,
+            song_ref=song_ref,
         )
 
         return jsonify({
@@ -1555,6 +1818,14 @@ def api_add_favorite():
         'url': data.get('url', ''),
         'source_url': data.get('source_url', ''),
         'mp3_url': data.get('mp3_url', ''),
+        'song_ref': data.get('song_ref', '') or song_ref_from_song(data),
+        'source': data.get('source', ''),
+        'type': data.get('type', ''),
+        'songid': data.get('songid', ''),
+        'lyric_id': data.get('lyric_id', ''),
+        'lyrics': data.get('lyrics', []) if isinstance(data.get('lyrics'), list) else [],
+        'lyrics_status': data.get('lyrics_status', ''),
+        'lyrics_source': data.get('lyrics_source', ''),
         'filename': data.get('filename', ''),
         'downloaded': data.get('downloaded', False),
         'added_at': datetime.now().isoformat(),

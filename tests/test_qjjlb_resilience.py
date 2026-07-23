@@ -27,6 +27,7 @@ class FakeResponse:
 class QjjlbResilienceTests(unittest.TestCase):
     def setUp(self):
         app._search_cache.clear()
+        app._lyrics_cache.clear()
 
     def test_fetch_musicbox_json_returns_friendly_message_when_connection_is_denied(self):
         class FakeSession:
@@ -178,6 +179,36 @@ class QjjlbResilienceTests(unittest.TestCase):
                 {'time': 1.0, 'text': 'Hello'},
                 {'time': 2.5, 'text': 'Hello'},
                 {'time': 3.0, 'text': 'World'},
+            ],
+        )
+
+    def test_parse_lrc_text_keeps_plain_lyrics_when_timestamps_are_missing(self):
+        lyrics = app.parse_lrc_text('[ti:Example]\nFirst line\nSecond line')
+
+        self.assertEqual(
+            lyrics,
+            [
+                {'time': None, 'text': 'First line'},
+                {'time': None, 'text': 'Second line'},
+            ],
+        )
+
+    def test_parse_lrc_text_does_not_treat_lyric_url_as_lyric_content(self):
+        lyrics = app.parse_lrc_text('https://example.test/song.lrc')
+
+        self.assertEqual(lyrics, [])
+
+    def test_parse_lrc_text_reads_nested_kuwo_lrclist_payload(self):
+        lyrics = app.parse_lrc_text({
+            'code': 200,
+            'data': {'lrclist': '[00:01.00]First line\n[00:02.00]Second line'},
+        })
+
+        self.assertEqual(
+            lyrics,
+            [
+                {'time': 1.0, 'text': 'First line'},
+                {'time': 2.0, 'text': 'Second line'},
             ],
         )
 
@@ -397,6 +428,7 @@ class QjjlbResilienceTests(unittest.TestCase):
             with patch.object(app, 'BASE_DIR', tmpdir), \
                  patch.object(app, 'MUSIC_DIR', music_dir), \
                  patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path), \
+                 patch.object(app, 'find_fallback_lyrics', return_value=(None, 'lyrics unavailable')), \
                  patch.object(app, 'get_song_info', side_effect=AssertionError('external lookup should be skipped')):
                 resp = client.get('/api/song-info', query_string={
                     'url': 'qjjlb://qq?msg=love&mid=0031Yimn3CnJFa',
@@ -456,6 +488,119 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(data['mp3_url'], f'/api/stream/{existing_filename}')
         self.assertEqual(data['cover_url'], 'https://img.example.test/love.jpg')
         self.assertEqual(data['lyrics'], [{'time': 1.0, 'text': 'real lyric'}])
+        self.assertEqual(data['lyrics_status'], 'ok')
+
+    def test_api_song_info_uses_song_ref_instead_of_generic_source_url_for_local_song(self):
+        client = app.app.test_client()
+        song_ref = 'qjjlb://qq?msg=wind&mid=correct-mid'
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            existing_filename = 'wind_1700000000.mp3'
+            with open(os.path.join(music_dir, existing_filename), 'wb') as f:
+                f.write(b'fake-mp3')
+
+            download_index_path = os.path.join(tmpdir, 'downloads.json')
+            with open(download_index_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'filename': existing_filename,
+                    'title': 'Wind',
+                    'artist': 'Singer',
+                    'song_url': song_ref,
+                    'source_url': app.QJJLB_BASE,
+                    'resolved_url': 'https://audio.example.test/wind.mp3',
+                }], f, ensure_ascii=False, indent=2)
+
+            resolved_info = {
+                'title': 'Wind',
+                'artist': 'Singer',
+                'mp3_url': 'https://audio.example.test/wind.mp3',
+                'source_url': 'https://y.qq.com/song/correct-mid',
+                'song_ref': song_ref,
+                'cover_url': '',
+                'lyric_id': 'correct-mid',
+                'lyrics': [{'time': 1.0, 'text': 'real lyric'}],
+            }
+            with patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path), \
+                 patch.object(app, 'get_song_info', return_value=(resolved_info, None)) as get_info:
+                resp = client.get('/api/song-info', query_string={
+                    'url': app.QJJLB_BASE,
+                    'song_ref': song_ref,
+                    'title': 'Wind',
+                    'artist': 'Singer',
+                })
+
+        data = resp.get_json()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(data['mp3_url'], f'/api/stream/{existing_filename}')
+        self.assertEqual(data['song_ref'], song_ref)
+        self.assertEqual(data['lyrics'], [{'time': 1.0, 'text': 'real lyric'}])
+        get_info.assert_called_once_with(song_ref)
+
+    def test_api_song_info_uses_cached_lyrics_for_local_song(self):
+        client = app.app.test_client()
+        song_ref = 'qjjlb://qq?msg=wind&mid=cached-mid'
+        app.store_cached_lyrics(song_ref, [{'time': 2.0, 'text': 'cached lyric'}], 'qq')
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            existing_filename = 'wind_1700000000.mp3'
+            with open(os.path.join(music_dir, existing_filename), 'wb') as f:
+                f.write(b'fake-mp3')
+            download_index_path = os.path.join(tmpdir, 'downloads.json')
+            with open(download_index_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'filename': existing_filename,
+                    'title': 'Wind',
+                    'artist': 'Singer',
+                    'song_url': song_ref,
+                }], f, ensure_ascii=False, indent=2)
+
+            with patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path), \
+                 patch.object(app, 'get_song_info', side_effect=AssertionError('cache should skip upstream')):
+                resp = client.get('/api/song-info', query_string={
+                    'url': song_ref,
+                    'title': 'Wind',
+                    'artist': 'Singer',
+                })
+
+        data = resp.get_json()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(data['lyrics'], [{'time': 2.0, 'text': 'cached lyric'}])
+        self.assertTrue(data['lyrics_cached'])
+
+    def test_hydrate_song_entry_recovers_song_ref_from_download_record(self):
+        song_ref = 'qjjlb://qq?msg=wind&mid=correct-mid'
+        with tempfile.TemporaryDirectory() as tmpdir:
+            music_dir = os.path.join(tmpdir, '音乐合集')
+            os.makedirs(music_dir, exist_ok=True)
+            existing_filename = 'wind_1700000000.mp3'
+            with open(os.path.join(music_dir, existing_filename), 'wb') as f:
+                f.write(b'fake-mp3')
+            download_index_path = os.path.join(tmpdir, 'downloads.json')
+            with open(download_index_path, 'w', encoding='utf-8') as f:
+                json.dump([{
+                    'filename': existing_filename,
+                    'title': 'Wind',
+                    'artist': 'Singer',
+                    'song_url': song_ref,
+                    'source_url': app.QJJLB_BASE,
+                }], f, ensure_ascii=False, indent=2)
+
+            with patch.object(app, 'MUSIC_DIR', music_dir), \
+                 patch.object(app, 'DOWNLOAD_INDEX_FILE', download_index_path):
+                hydrated = app.hydrate_song_entry({
+                    'id': existing_filename,
+                    'filename': existing_filename,
+                    'title': 'Wind',
+                    'artist': 'Singer',
+                })
+
+        self.assertEqual(hydrated['song_ref'], song_ref)
 
     def test_api_delete_music_returns_success_after_removing_file(self):
         client = app.app.test_client()
@@ -810,6 +955,44 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(info['lyric_id'], '1394167216')
         self.assertTrue(info['lyrics'])
 
+    def test_resolve_qjjlb_song_info_follows_kuwo_lyric_url(self):
+        song_url = 'qjjlb://kuwo?id=196239918'
+        lyric_url = 'http://kw-api.example.test?id=196239918&type=lyr'
+
+        def fake_fetch(url, params=None, timeout=20):
+            if params and params.get('type') == 'song':
+                return {
+                    'code': 200,
+                    'data': {
+                        'name': '须尽欢',
+                        'artist': '郑浩',
+                        'url': 'https://audio.example.test/song.mp3',
+                        'lyric': lyric_url,
+                    },
+                }, None
+            if url == lyric_url:
+                return {
+                    'code': 200,
+                    'data': {'lrclist': '[00:01.00]真实歌词'},
+                }, None
+            self.fail(f'unexpected request: {url} {params}')
+
+        with patch.object(app, 'fetch_qjjlb_json', side_effect=fake_fetch):
+            info, err = app.resolve_qjjlb_song_info(song_url)
+
+        self.assertIsNone(err)
+        self.assertEqual(info['lyrics'], [{'time': 1.0, 'text': '真实歌词'}])
+        self.assertEqual(info['lyrics_status'], 'ok')
+
+    def test_lyrics_state_distinguishes_missing_lyrics_from_source_failure(self):
+        missing = app.set_lyrics_state({'lyrics': []})
+        failed = app.set_lyrics_state({'lyrics': []}, lyrics_error='timeout')
+
+        self.assertEqual(missing['lyrics_status'], 'not_found')
+        self.assertIn('纯音乐', missing['lyrics_message'])
+        self.assertEqual(failed['lyrics_status'], 'source_error')
+        self.assertIn('下次播放会自动重试', failed['lyrics_message'])
+
     def test_make_musicbox_netease_song_uses_resolvable_url_when_no_direct_mp3(self):
         item = {
             'id': '1394167216',
@@ -911,7 +1094,8 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         data = resp.get_json()
         self.assertEqual(data['mp3_url'], 'https://audio.example.test/song.mp3')
-        self.assertEqual(data['source_url'], 'qjjlb://netease?id=1394167216')
+        self.assertEqual(data['source_url'], direct_mp3)
+        self.assertEqual(data['song_ref'], 'qjjlb://netease?id=1394167216')
         self.assertTrue(data['lyrics'])
 
     def test_api_proxy_stream_adds_musicbox_headers_for_musicbox_urls(self):

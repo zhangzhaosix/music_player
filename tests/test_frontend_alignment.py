@@ -27,6 +27,15 @@ class FrontendAlignmentTests(unittest.TestCase):
         self.assertIn(".playlist-detail-main", style_css)
         self.assertIn("align-items: center;", style_css)
 
+    def test_lyrics_use_song_reference_and_never_render_fake_placeholder_lines(self):
+        app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function getSongInfoReference(song)", app_js)
+        self.assertIn("params.set('song_ref', getSongInfoReference(song))", app_js)
+        self.assertIn("暂未找到歌词，可能为纯音乐或歌词源尚未收录。", app_js)
+        self.assertIn("歌词服务暂时不可用，播放不受影响", app_js)
+        self.assertNotIn("歌词数据暂未接入，当前展示为沉浸式占位。", app_js)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -212,14 +212,6 @@ function formatTime(sec) {
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-const DEFAULT_LYRIC_LINES = [
-    '把唱针轻轻落下，让房间慢慢安静。',
-    '这一刻，只留下旋转的黑胶和低声的旋律。',
-    '歌词数据暂未接入，当前展示为沉浸式占位。',
-    '你可以继续搜索、收藏，或把歌曲加入歌单。',
-    '当音乐播放时，唱片会跟随状态缓慢旋转。',
-    '暂停之后，夜色和节拍一起停在这里。',
-];
 const SEARCH_SOURCE_LIMIT = 20;
 
 function getSongInitial(song) {
@@ -241,20 +233,28 @@ function hasRealLyrics(song) {
 function getLyricEntries(song) {
     if (hasRealLyrics(song)) {
         return song.lyrics
-            .map(item => ({
-                text: String(item.text || item.lineLyric || item.line || '').trim(),
-                time: Number(item.time || 0),
-            }))
+            .map(item => {
+                const rawTime = item.time;
+                const parsedTime = rawTime === null || rawTime === undefined || rawTime === ''
+                    ? null
+                    : Number(rawTime);
+                return {
+                    text: String(item.text || item.lineLyric || item.line || '').trim(),
+                    time: Number.isFinite(parsedTime) ? parsedTime : null,
+                };
+            })
             .filter(item => item.text);
     }
+    return [];
+}
 
-    if (!song) return DEFAULT_LYRIC_LINES;
-    const title = song.title || '这首歌';
-    const artist = song.artist || '未知歌手';
-    return [
-        `正在播放：${title}`,
-        `${artist} 的声音在深色房间里展开。`,
-    ].map(text => ({ text, time: null }));
+function getLyricStatusMessage(song) {
+    if (!song) return '从音乐库选择歌曲后显示真实歌词。';
+    if (song.lyrics_status === 'loading') return song.lyrics_message || '正在加载真实歌词…';
+    if (song.lyrics_status === 'source_error') {
+        return song.lyrics_message || '歌词服务暂时不可用，播放不受影响；下次播放会自动重试。';
+    }
+    return song.lyrics_message || '暂未找到歌词，可能为纯音乐或歌词源尚未收录。';
 }
 
 function renderLyrics(song) {
@@ -263,13 +263,15 @@ function renderLyrics(song) {
     const lyricsKey = JSON.stringify([
         song ? (song.id || song.url || song.filename || '') : '',
         hasRealLyrics(song),
+        song ? (song.lyrics_status || '') : '',
+        song ? (song.lyrics_message || '') : '',
         lyricEntries.map(line => [line.time ?? '', line.text]),
     ]);
     if (state.currentLyricsKey === lyricsKey) return;
     state.currentLyricsKey = lyricsKey;
     state.currentLyricIndex = -1;
-    const fallbackNotice = song && !hasRealLyrics(song)
-        ? '<p class="lyric-note">暂无真实歌词，已显示占位歌词。</p>'
+    const fallbackNotice = !hasRealLyrics(song)
+        ? `<p class="lyric-note">${escapeHtml(getLyricStatusMessage(song))}</p>`
         : '';
     lyricsList.innerHTML = fallbackNotice + lyricEntries
         .map((line, index) => `<p class="lyric-line${index === 0 ? ' active' : ''}" data-lyric-index="${index}" data-time="${line.time ?? ''}">${escapeHtml(line.text)}</p>`)
@@ -282,7 +284,9 @@ function syncLyricHighlight() {
     if (!lines.length) return;
 
     const timedLines = lines
-        .map((line, index) => ({ index, time: Number(line.dataset.time) }))
+        .map((line, index) => ({ index, rawTime: line.dataset.time }))
+        .filter(item => item.rawTime !== '')
+        .map(item => ({ index: item.index, time: Number(item.rawTime) }))
         .filter(item => Number.isFinite(item.time) && item.time >= 0);
 
     let activeIndex = 0;
@@ -403,7 +407,7 @@ function qjjlbSongIdentityKeyFromUrl(url) {
 function getSongIdentityKey(song) {
     if (!song || typeof song !== 'object') return '';
 
-    for (const key of ['url', 'source_url', 'song_url', 'resolved_url']) {
+    for (const key of ['song_ref', 'url', 'source_url', 'song_url', 'resolved_url']) {
         const identity = qjjlbSongIdentityKeyFromUrl(song[key]);
         if (identity) return identity;
     }
@@ -414,6 +418,15 @@ function getSongIdentityKey(song) {
         return `qjjlb:${provider}:${songId}`;
     }
     return '';
+}
+
+function getSongInfoReference(song) {
+    if (!song) return '';
+    for (const key of ['song_ref', 'url', 'song_url', 'resolved_url', 'source_url']) {
+        const value = String(song[key] || '').trim();
+        if (qjjlbSongIdentityKeyFromUrl(value)) return value;
+    }
+    return String(song.source_url || song.url || song.mp3_url || '').trim();
 }
 
 function findFavoriteForSong(songOrId) {
@@ -1246,7 +1259,12 @@ async function playSong(songId) {
         syncImmersivePlayerUI();
     } else if (song.url) {
         // 如果是在线结果，先补全直链再代理播放
-        renderLyrics({ ...song, lyrics: [{ time: 0, text: '正在加载歌词...' }] });
+        renderLyrics({
+            ...song,
+            lyrics: [],
+            lyrics_status: 'loading',
+            lyrics_message: '正在加载真实歌词…',
+        });
         const hydrated = await loadOnlineSongInfo(song);
         if (!hydrated) {
             toast('无法获取网易云播放地址', true);
@@ -1403,6 +1421,7 @@ async function fetchOnlineSongInfo(songUrl, song = null) {
         const params = new URLSearchParams({ url: songUrl });
         if (song && song.title) params.set('title', song.title);
         if (song && song.artist) params.set('artist', song.artist);
+        if (song && getSongInfoReference(song)) params.set('song_ref', getSongInfoReference(song));
         const resp = await fetch(`/api/song-info?${params.toString()}`);
         const data = await resp.json();
         if (data.error) {
@@ -1418,6 +1437,7 @@ async function fetchOnlineSongInfo(songUrl, song = null) {
 
 function mergeSongInfo(song, info) {
     if (!song || !info) return song;
+    const songRef = info.song_ref || song.song_ref || getSongInfoReference(song);
     const merged = {
         ...song,
         title: isBlockedSongText(info.title) ? song.title : (info.title || song.title),
@@ -1425,11 +1445,16 @@ function mergeSongInfo(song, info) {
         cover_url: info.cover_url || song.cover_url,
         lyric_id: info.lyric_id || song.lyric_id,
         mp3_url: info.mp3_url || song.mp3_url,
+        song_ref: songRef,
         source_url: info.source_url || song.source_url || song.url,
-        url: info.source_url || song.source_url || song.url,
+        url: song.url || songRef || info.source_url || song.source_url,
+        lyrics_status: info.lyrics_status || song.lyrics_status,
+        lyrics_message: info.lyrics_message || '',
+        lyrics_source: info.lyrics_source || song.lyrics_source || '',
+        lyrics_cached: Boolean(info.lyrics_cached),
     };
 
-    if (Array.isArray(info.lyrics) && info.lyrics.length) {
+    if (Array.isArray(info.lyrics)) {
         merged.lyrics = info.lyrics;
     }
 
@@ -1445,7 +1470,7 @@ async function loadOnlineSongInfo(song) {
     }
 
     if (song.downloaded && song.filename) {
-        const infoSourceUrl = song.source_url || song.url;
+        const infoSourceUrl = getSongInfoReference(song);
         const info = infoSourceUrl ? await fetchOnlineSongInfo(infoSourceUrl, song) : null;
         return {
             song: mergeSongInfo(song, info || song),
@@ -1455,7 +1480,7 @@ async function loadOnlineSongInfo(song) {
 
     const directMp3Url = song.mp3_url || (song.url && /\.mp3(?:[?#].*)?$/i.test(song.url) ? song.url : '');
     if (directMp3Url) {
-        const infoSourceUrl = song.source_url || song.url;
+        const infoSourceUrl = getSongInfoReference(song);
         const info = infoSourceUrl ? await fetchOnlineSongInfo(infoSourceUrl, song) : null;
         return {
             song: mergeSongInfo(song, info || {
@@ -1740,6 +1765,7 @@ async function downloadSong(songId, options = {}) {
             body: JSON.stringify({
                 url: downloadUrl,
                 source_url: song.source_url || song.url || downloadUrl,
+                song_ref: getSongInfoReference(song),
                 title: song.title,
                 artist: song.artist,
             }),
@@ -1803,6 +1829,14 @@ async function toggleFavorite(songId) {
                     url: song.url,
                     source_url: song.source_url || song.url || '',
                     mp3_url: song.mp3_url || '',
+                    song_ref: getSongInfoReference(song),
+                    source: song.source || '',
+                    type: song.type || '',
+                    songid: song.songid || '',
+                    lyric_id: song.lyric_id || '',
+                    lyrics: Array.isArray(song.lyrics) ? song.lyrics : [],
+                    lyrics_status: song.lyrics_status || '',
+                    lyrics_source: song.lyrics_source || '',
                     filename: song.filename || '',
                     downloaded: song.downloaded || false,
                 }),
@@ -1820,6 +1854,14 @@ async function toggleFavorite(songId) {
                     url: song.url || '',
                     source_url: song.source_url || song.url || '',
                     mp3_url: song.mp3_url || '',
+                    song_ref: getSongInfoReference(song),
+                    source: song.source || '',
+                    type: song.type || '',
+                    songid: song.songid || '',
+                    lyric_id: song.lyric_id || '',
+                    lyrics: Array.isArray(song.lyrics) ? song.lyrics : [],
+                    lyrics_status: song.lyrics_status || '',
+                    lyrics_source: song.lyrics_source || '',
                     filename: song.filename || '',
                     downloaded: song.downloaded || false,
                 });
@@ -2348,13 +2390,17 @@ function savePlaybackState() {
         localStorage.setItem('music_playback', JSON.stringify({
             currentSong: {
                 id: s.id, title: s.title, artist: s.artist,
-                url: s.url, filename: s.filename, downloaded: s.downloaded,
+                url: s.url, source_url: s.source_url, song_ref: s.song_ref,
+                type: s.type, songid: s.songid,
+                filename: s.filename, downloaded: s.downloaded,
             },
             currentTime: audio.currentTime || 0,
             wasPlaying: state.isPlaying,
             queue: state.queue.map(q => ({
                 id: q.id, title: q.title, artist: q.artist,
-                url: q.url, filename: q.filename, downloaded: q.downloaded,
+                url: q.url, source_url: q.source_url, song_ref: q.song_ref,
+                type: q.type, songid: q.songid,
+                filename: q.filename, downloaded: q.downloaded,
             })),
             queueIndex: state.queueIndex,
             playMode: state.playMode,
