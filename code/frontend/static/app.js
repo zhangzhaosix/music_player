@@ -90,79 +90,30 @@ const PLAYABLE_INFO_TTL_MS = 5 * 60 * 1000;
 
 // ─── SVG 图标 ──────────────────────────────────────────
 const ICON = {
-  play: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z"/></svg>',
-  pause: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M5.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75A.75.75 0 007.25 3h-1.5zM12.75 3a.75.75 0 00-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 00.75-.75V3.75a.75.75 0 00-.75-.75h-1.5z"/></svg>',
-  heart: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M9.653 16.915l-.005-.003-.019-.01a20.759 20.759 0 01-1.162-.682 22.045 22.045 0 01-2.582-1.9C4.045 12.733 2 10.352 2 7.5a4.5 4.5 0 018-2.828A4.5 4.5 0 0118 7.5c0 2.852-2.044 5.233-3.885 6.82a22.049 22.049 0 01-3.744 2.582l-.019.01-.005.003h-.002a.739.739 0 01-.69.001l-.002-.001z"/></svg>',
-  heartOutline: '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9.653 16.915l-.005-.003-.019-.01a20.759 20.759 0 01-1.162-.682 22.045 22.045 0 01-2.582-1.9C4.045 12.733 2 10.352 2 7.5a4.5 4.5 0 018-2.828A4.5 4.5 0 0118 7.5c0 2.852-2.044 5.233-3.885 6.82a22.049 22.049 0 01-3.744 2.582l-.019.01-.005.003h-.002a.739.739 0 01-.69.001l-.002-.001z"/></svg>',
-  download: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z"/><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z"/></svg>',
-  downloadDone: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 2.75a.75.75 0 00-1.5 0v8.614L6.295 8.235a.75.75 0 10-1.09 1.03l4.25 4.5a.75.75 0 001.09 0l4.25-4.5a.75.75 0 00-1.09-1.03l-2.955 3.129V2.75z"/><path d="M3.5 12.75a.75.75 0 00-1.5 0v2.5A2.75 2.75 0 004.75 18h10.5A2.75 2.75 0 0018 15.25v-2.5a.75.75 0 00-1.5 0v2.5c0 .69-.56 1.25-1.25 1.25H4.75c-.69 0-1.25-.56-1.25-1.25v-2.5z"/></svg>',
-  plus: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M10.75 4.75a.75.75 0 00-1.5 0v4.5h-4.5a.75.75 0 000 1.5h4.5v4.5a.75.75 0 001.5 0v-4.5h4.5a.75.75 0 000-1.5h-4.5v-4.5z"/></svg>',
-  trash: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>',
-  minus: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M4 10a.75.75 0 01.75-.75h10.5a.75.75 0 010 1.5H4.75A.75.75 0 014 10z"/></svg>',
-  prev: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M4.5 4.5a.75.75 0 00-1.5 0v11a.75.75 0 001.5 0v-11zM6.058 9.69a.75.75 0 000 1.026l5.236 5.228a.75.75 0 001.06 0 .75.75 0 000-1.061l-3.435-3.428L15 9.554a.75.75 0 000-1.5L8.92 8.006l3.435-3.428a.75.75 0 000-1.06.75.75 0 00-1.06 0L6.058 9.69z"/></svg>',
-  next: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M3.28 4.23a.75.75 0 00-1.06 1.06l3.427 3.428L2.222 12.69a.75.75 0 101.06 1.06l4.236-4.236a.75.75 0 000-1.061L3.28 4.23zM16.5 4.5a.75.75 0 00-1.5 0v11a.75.75 0 001.5 0v-11z"/></svg>',
-  shuffle: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M15.22 4.97a.75.75 0 01.78.28l2 2.5a.75.75 0 01-.11 1.05l-2.5 2a.75.75 0 01-.99-1.13l1.11-.89H13.5a1.5 1.5 0 00-1.15.56l-1.3 1.63a.75.75 0 11-1.2-.9l1.3-1.63A3 3 0 0113.5 6.5h1.72l-1.1-.89a.75.75 0 01.1-1.14z"/><path d="M3.25 5.5a.75.75 0 000 1.5h1.65a1.5 1.5 0 011.15.56l3.07 3.84a.75.75 0 101.2-.9l-3.07-3.84A3 3 0 004.9 5.5H3.25z"/><path d="M8.58 10.94a.75.75 0 00-1.06-.02l-.38.34a3 3 0 01-2.2.92H3.25a.75.75 0 000 1.5h1.69a4.5 4.5 0 003.3-1.38l.38-.34a.75.75 0 00-.04-1.02z"/><path d="M10.22 11.78a.75.75 0 111.06-1.06l.03.03a3 3 0 012.19.93H15.3l-1.1-.89a.75.75 0 111-1.13l2.5 2a.75.75 0 01.11 1.05l-2 2.5a.75.75 0 01-.99 1.13l-1.11-.89H13.5a3 3 0 00-2.19-.93l-.03-.03z"/></svg>',
-  repeat: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M15.22 6.03a.75.75 0 010 1.06L14.08 8.23a.75.75 0 01-1.06-1.06l.47-.47H7.5a2.25 2.25 0 000 4.5h.19a.75.75 0 010 1.5h-.19a3.75 3.75 0 010-7.5h5.99l-.47-.47a.75.75 0 011.06-1.06l1.14 1.14a.75.75 0 01.22.53z"/><path d="M5.78 13.97a.75.75 0 010-1.06l1.14-1.14a.75.75 0 011.06 1.06l-.47.47h5.99a2.25 2.25 0 000-4.5h-.19a.75.75 0 010-1.5h.19a3.75 3.75 0 010 7.5H7.51l.47.47a.75.75 0 01-1.06 1.06l-1.14-1.14a.75.75 0 01-.22-.53z"/></svg>',
-  repeatOne: '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor"><path d="M15.22 6.03a.75.75 0 010 1.06L14.08 8.23a.75.75 0 01-1.06-1.06l.47-.47H7.5a2.25 2.25 0 000 4.5h.19a.75.75 0 010 1.5h-.19a3.75 3.75 0 010-7.5h5.99l-.47-.47a.75.75 0 011.06-1.06l1.14 1.14a.75.75 0 01.22.53z"/><path d="M5.78 13.97a.75.75 0 010-1.06l1.14-1.14a.75.75 0 011.06 1.06l-.47.47h5.99a2.25 2.25 0 000-4.5h-.19a.75.75 0 010-1.5h.19a3.75 3.75 0 010 7.5H7.51l.47.47a.75.75 0 01-1.06 1.06l-1.14-1.14a.75.75 0 01-.22-.53z"/><circle cx="10" cy="10.5" r="1.5"/></svg>',
-  musicNote: '<svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M14.5 2.25A.75.75 0 0115.17 3l.006 11.747a3.748 3.748 0 01-5.304 3.36 3.75 3.75 0 01-1.806-4.226 3.75 3.75 0 014.05-2.882l.002 2a2.25 2.25 0 10-1.582 2.522L11 11.193V4.909c0-.21.07-.414.198-.575l.098-.125a2.25 2.25 0 011.328-.738l.206-.027.545-.068.322-.04.496-.062c.4-.05.807-.074 1.222-.074h.117a.75.75 0 01.087 1.498l-.026.001h-.242z"/></svg>',
-  check: '<svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3 3 8-8"/></svg>',
+    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 10 7-10 7z" fill="currentColor" stroke="none"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" stroke-width="3"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 018-3.1 4.6 4.6 0 018 3.1z" fill="currentColor"/></svg>',
+    heartOutline: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 018-3.1 4.6 4.6 0 018 3.1z"/></svg>',
+    download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg>',
+    downloadDone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 4 4 7-8M5 16v4h14v-4"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg>',
+    minus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>',
+    prev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14m13-14L8 12l10 7z"/></svg>',
+    next: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M6 5l10 7-10 7z"/></svg>',
+    shuffle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h2c4 0 8 12 12 12h2m-4-4 4 4-4 3M4 18h2c1.5 0 3-2 4-4m4-4c1.5-2.5 2.5-4 4-4h2m-4-3 4 3-4 4"/></svg>',
+    repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 4 4-4 4M4 11V9a2 2 0 012-2h14M8 21l-4-4 4-4m12 0v2a2 2 0 01-2 2H4"/></svg>',
+    repeatOne: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 4 4-4 3M4 11V9a2 2 0 012-2h14M8 21l-4-4 4-3m12-1v2a2 2 0 01-2 2H4m7-6 1-1v4"/></svg>',
+    musicNote: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17V5l11-2v12M9 8l11-2"/><ellipse cx="6" cy="17" rx="3" ry="2"/><ellipse cx="17" cy="15" rx="3" ry="2"/></svg>',
+    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>',
 };
 
 function renderPlaylistFolderIcon(kind = 'card') {
-    const className = kind === 'inline'
-        ? 'playlist-folder-icon playlist-folder-icon-inline'
-        : 'playlist-folder-icon playlist-folder-icon-card';
-    return `<span class="${className}" aria-hidden="true">
-        <svg viewBox="0 0 512 512" focusable="false" role="img">
-            <defs>
-                <linearGradient id="pf-body" x1="96" y1="120" x2="416" y2="400" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stop-color="#637558" />
-                    <stop offset="0.46" stop-color="#3e4b3e" />
-                    <stop offset="1" stop-color="#161d18" />
-                </linearGradient>
-                <linearGradient id="pf-front" x1="84" y1="188" x2="430" y2="402" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stop-color="#55634d" />
-                    <stop offset="0.5" stop-color="#2f392f" />
-                    <stop offset="1" stop-color="#171d18" />
-                </linearGradient>
-                <linearGradient id="pf-tab" x1="120" y1="106" x2="300" y2="176" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stop-color="#75886a" />
-                    <stop offset="1" stop-color="#435245" />
-                </linearGradient>
-                <radialGradient id="pf-disc" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(250 300) rotate(90) scale(126)">
-                    <stop offset="0" stop-color="#474d45" />
-                    <stop offset="0.58" stop-color="#212622" />
-                    <stop offset="1" stop-color="#111512" />
-                </radialGradient>
-                <radialGradient id="pf-center" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(250 300) scale(58)">
-                    <stop offset="0" stop-color="#fbf5e6" />
-                    <stop offset="1" stop-color="#e0d0af" />
-                </radialGradient>
-                <filter id="pf-shadow" x="54" y="74" width="404" height="392" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-                    <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#020302" flood-opacity="0.18" />
-                </filter>
-            </defs>
-            <g filter="url(#pf-shadow)">
-                <path d="M108 150c0-28 23-50 50-50h80c15 0 29 6 39 17l22 25h113c28 0 50 22 50 50v156c0 34-28 62-62 62H170c-34 0-62-28-62-62V150z" fill="url(#pf-body)" />
-                <path d="M96 178c0-25 20-45 45-45h93c15 0 28 6 38 17l18 21h126c28 0 50 22 50 50v143c0 36-29 65-65 65H161c-36 0-65-29-65-65V178z" fill="url(#pf-front)" />
-                <path d="M105 139h89c16 0 30 7 40 18l15 17h133c23 0 41 18 41 41v10H105v-86z" fill="url(#pf-tab)" />
-                <path d="M104 187h306" stroke="rgba(223,232,210,0.56)" stroke-width="2.7" stroke-linecap="round" />
-                <g transform="translate(250 304)">
-                    <circle r="120" fill="url(#pf-disc)" />
-                    <circle r="98" fill="none" stroke="rgba(255,255,255,0.055)" stroke-width="1.8" />
-                    <circle r="78" fill="none" stroke="rgba(255,255,255,0.045)" stroke-width="1.8" />
-                    <circle r="58" fill="none" stroke="rgba(255,255,255,0.038)" stroke-width="1.8" />
-                    <circle r="38" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1.8" />
-                    <circle r="62" fill="rgba(0,0,0,0.08)" />
-                    <circle r="50" fill="url(#pf-center)" stroke="rgba(255,255,255,0.4)" stroke-width="1.6" />
-                    <circle r="14" fill="#1b1710" />
-                    <circle r="8" fill="rgba(255,255,255,0.04)" />
-                </g>
-                <circle cx="250" cy="304" r="130" fill="none" stroke="rgba(206,224,181,0.42)" stroke-width="3" />
-                <circle cx="250" cy="304" r="131.5" fill="none" stroke="rgba(25,31,26,0.72)" stroke-width="1.8" />
-                <path d="M135 388c18 10 44 16 76 16h72c73 0 117-27 131-81" fill="none" stroke="rgba(0,0,0,0.06)" stroke-width="14" stroke-linecap="round" />
-            </g>
-        </svg>
+    return `<span class="playlist-folder-icon playlist-folder-icon-${kind}" aria-hidden="true">
+        <svg viewBox="0 0 64 64"><rect x="5" y="5" width="54" height="54" rx="6" fill="var(--accent-soft)" stroke="none"/>
+        <circle cx="32" cy="32" r="21"/><circle cx="32" cy="32" r="14" opacity="0.45"/>
+        <circle cx="32" cy="32" r="6" fill="currentColor" stroke="none"/>
+        <circle cx="32" cy="32" r="2" fill="var(--surface)" stroke="none"/></svg>
     </span>`;
 }
 
@@ -172,6 +123,7 @@ function toast(msg, isError = false) {
     const el = document.createElement('div');
     el.className = `toast${isError ? ' error-toast' : ''}`;
     el.textContent = msg;
+    el.setAttribute('role', isError ? 'alert' : 'status');
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
     setTimeout(() => {
@@ -183,7 +135,7 @@ function toast(msg, isError = false) {
 function closeDeleteConfirm(confirmed) {
     if (!deleteConfirmResolver) return;
 
-    deleteConfirmModal.style.display = 'none';
+    dismissDialog(deleteConfirmModal);
     deleteConfirmModal.setAttribute('aria-hidden', 'true');
 
     const resolve = deleteConfirmResolver;
@@ -205,6 +157,7 @@ function showDeleteConfirm({ title = '确认删除', message = '', confirmText =
     deleteConfirmMessage.textContent = message;
     confirmDeleteConfirmBtn.textContent = confirmText;
     deleteConfirmModal.style.display = 'flex';
+    focusDialog(deleteConfirmModal);
     deleteConfirmModal.setAttribute('aria-hidden', 'false');
 
     return new Promise(resolve => {
@@ -257,7 +210,7 @@ function getLyricEntries(song) {
 }
 
 function getLyricStatusMessage(song) {
-    if (!song) return '从音乐库选择歌曲后显示真实歌词。';
+    if (!song) return '选一首喜欢的歌，让这一刻有自己的旋律。';
     if (song.lyrics_status === 'loading') return song.lyrics_message || '正在加载真实歌词…';
     if (song.lyrics_status === 'source_error') {
         return song.lyrics_message || '歌词服务暂时不可用，播放不受影响；下次播放会自动重试。';
@@ -318,21 +271,28 @@ function syncLyricHighlight() {
     lines.forEach((line, index) => line.classList.toggle('active', index === activeIndex));
     const activeLine = lines[activeIndex];
     if (activeLine && state.isPlaying) {
-        activeLine.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        lyricsList.scrollTo({
+            top: activeLine.offsetTop - lyricsList.offsetTop - lyricsList.clientHeight / 2 + activeLine.clientHeight / 2,
+            behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+        });
     }
 }
 
 function syncImmersivePlayerUI() {
     const song = state.currentSong;
-    const title = song ? (song.title || '未知歌曲') : '沉浸式黑胶播放器';
+    const title = song ? (song.title || '未知歌曲') : '让音乐，慢下来。';
     const artist = song ? (song.artist || '未知歌手') : '打开音乐库选择播放';
 
     document.body.classList.toggle('is-playing', state.isPlaying);
     if (vinylRecord) vinylRecord.classList.toggle('is-spinning', state.isPlaying);
     if (albumInitial) albumInitial.textContent = getSongInitial(song);
-    if (vinylState) vinylState.textContent = state.isPlaying ? 'Playing' : 'Paused';
+    if (vinylState) vinylState.textContent = state.isPlaying ? '正在播放' : (state.currentSong ? '已暂停' : '等待播放');
     if (ambientSongTitle) ambientSongTitle.textContent = song ? title : '选择一首歌开始播放';
     if (heroSongTitle) heroSongTitle.textContent = title;
+    $('heroSongArtist').textContent = song ? artist : '留一点时间，给喜欢的声音。';
+    $('chooseMusicBtn').hidden = !!song;
+    playBtn.title = state.isPlaying ? '暂停' : '播放';
+    playBtn.setAttribute('aria-label', playBtn.title);
     if (playerTitle) playerTitle.textContent = song ? title : '未选择歌曲';
     if (playerArtist) playerArtist.textContent = song ? artist : '打开音乐库选择播放';
 
@@ -341,12 +301,20 @@ function syncImmersivePlayerUI() {
     syncFavoriteCurrentButton();
 }
 
+let libraryReturnFocus = null;
+
 function setLibraryOpen(open) {
     if (!libraryPanel || !libraryBackdrop) return;
+    if (open) libraryReturnFocus = document.activeElement;
+    libraryPanel.inert = !open;
+    document.querySelector('.music-player-page').inert = open;
+    document.querySelector('.app-header').inert = open;
     libraryPanel.classList.toggle('open', open);
     libraryPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
     libraryBackdrop.hidden = !open;
     if (libraryToggle) libraryToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) requestAnimationFrame(() => searchInput.focus({ preventScroll: true }));
+    else if (libraryReturnFocus?.isConnected) libraryReturnFocus.focus({ preventScroll: true });
 }
 
 function openLibrary() {
@@ -596,26 +564,50 @@ document.querySelectorAll('.tab').forEach(tab => {
     });
 });
 
-document.querySelectorAll('.lyric-tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-        const name = tab.dataset.lyricTab;
-        document.querySelectorAll('.lyric-tab').forEach(t => {
-            const active = t === tab;
-            t.classList.toggle('active', active);
-            t.setAttribute('aria-selected', active ? 'true' : 'false');
-        });
-        document.querySelectorAll('.lyric-panel').forEach(panel => {
-            panel.classList.toggle('active', panel.dataset.panel === name);
-        });
-    });
-});
-
 if (libraryToggle) libraryToggle.addEventListener('click', openLibrary);
 if (queueBtn) queueBtn.addEventListener('click', openLibrary);
+$('chooseMusicBtn').addEventListener('click', openLibrary);
 if (closeLibraryPanel) closeLibraryPanel.addEventListener('click', closeLibrary);
 if (libraryBackdrop) libraryBackdrop.addEventListener('click', closeLibrary);
+// Keep keyboard focus in the visible sheet or dialog and restore it on close.
+function focusDialog(overlay) {
+    overlay.returnFocus = document.activeElement;
+    requestAnimationFrame(() => {
+        if (overlay.isConnected && overlay.style.display !== 'none') {
+            overlay.querySelector('input, button')?.focus();
+        }
+    });
+}
+
+function dismissDialog(overlay) {
+    if (overlay.classList.contains('add-to-pl-overlay')) overlay.remove();
+    else overlay.style.display = 'none';
+    const target = overlay.returnFocus;
+    if (target?.isConnected && target.getClientRects().length) target.focus();
+    else if (libraryPanel.classList.contains('open')) closeLibraryPanel.focus();
+}
+
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') closeLibrary();
+    const overlay = [...document.querySelectorAll('.modal-overlay, .add-to-pl-overlay')]
+        .findLast(el => el.style.display !== 'none');
+    if (e.key === 'Escape') {
+        if (overlay) {
+            e.preventDefault();
+            if (overlay === deleteConfirmModal) closeDeleteConfirm(false);
+            else dismissDialog(overlay);
+        } else if (libraryPanel.classList.contains('open')) closeLibrary();
+    }
+    const scope = overlay || (libraryPanel.classList.contains('open') ? libraryPanel : null);
+    if (e.key !== 'Tab' || !scope) return;
+    const focusable = [...scope.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]')]
+        .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden');
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (!first) return;
+    if (e.shiftKey && (document.activeElement === first || !scope.contains(document.activeElement))) {
+        e.preventDefault(); last.focus();
+    } else if (!e.shiftKey && (document.activeElement === last || !scope.contains(document.activeElement))) {
+        e.preventDefault(); first.focus();
+    }
 });
 
 if (favoriteCurrentBtn) {
@@ -791,7 +783,7 @@ async function loadLocalMusic() {
         state.localMusic = data.music || [];
 
         if (!state.localMusic.length) {
-            container.innerHTML = '<div class="empty-state"><p>本地还没有歌曲</p><p class="hint">搜索后点击 💾 下载</p></div>';
+            container.innerHTML = '<div class="empty-state"><p>本地还没有歌曲</p><p class="hint">搜索歌曲后，点击下载按钮保存到本地</p></div>';
             return;
         }
         container.innerHTML = state.localMusic.map(song => buildSongItem(song)).join('');
@@ -815,7 +807,7 @@ async function loadFavorites() {
         syncCachedSongFlags();
 
         if (!state.favorites.length) {
-            container.innerHTML = '<div class="empty-state"><p>还没有收藏的歌曲</p><p class="hint">点击 ♡ 收藏喜欢的歌</p></div>';
+            container.innerHTML = '<div class="empty-state"><p>还没有收藏的歌曲</p><p class="hint">搜索喜欢的歌曲，点击爱心即可收藏</p></div>';
             return;
         }
         container.innerHTML = state.favorites.map(fav => buildSongItem({
@@ -856,7 +848,7 @@ async function loadDownloads() {
         }
 
         if (!state.localMusic.length) {
-            container.innerHTML = '<div class="empty-state"><p>还没有下载过歌曲</p><p class="hint">搜索歌曲后点击 💾 下载</p></div>';
+            container.innerHTML = '<div class="empty-state"><p>还没有下载过歌曲</p><p class="hint">搜索歌曲后，点击下载按钮保存到本地</p></div>';
             return;
         }
         container.innerHTML = state.localMusic.map(song => buildSongItem(song, { hideSelectBtn: true })).join('');
@@ -886,13 +878,13 @@ function buildSongItem(song, options = {}) {
     return `
         <div class="song-item ${playingClass}${isSelected ? ' selected' : ''}" data-song-id="${song.id}">
             ${hideSelectBtn ? '' : `<button class="song-select-btn${isSelected ? ' selected' : ''}" onclick="toggleSongSelection('${song.id}')" aria-label="选择歌曲" aria-pressed="${isSelected ? 'true' : 'false'}">${isSelected ? ICON.check : ''}</button>`}
-            <div class="song-cover">${ICON.musicNote}</div>
+            <div class="song-cover" aria-hidden="true">${escapeHtml(getSongInitial(song))}</div>
             <div class="song-info">
-                <div class="song-title">${escapeHtml(song.title || '未知歌曲')}</div>
+                <div class="song-title" title="${escapeHtml(song.title || '未知歌曲')}">${escapeHtml(song.title || '未知歌曲')}</div>
                 <div class="song-artist">${escapeHtml(song.artist || '未知歌手')}</div>
             </div>
             <div class="song-actions">
-                <button class="play-btn-item ${isPlaying ? 'playing' : ''}" onclick="playSong('${song.id}')" title="播放">${playIcon}</button>
+                <button class="play-btn-item ${isPlaying ? 'playing' : ''}" onclick="playSong('${song.id}')" title="${isPlaying && state.isPlaying ? '暂停' : '播放'}" aria-label="${isPlaying && state.isPlaying ? '暂停' : '播放'} ${escapeHtml(song.title)}">${playIcon}</button>
                 <button class="fav-btn ${favClass}" onclick="toggleFavorite('${song.id}')" title="${favorited ? '取消收藏' : '收藏'}">${favIcon}</button>
                 <button class="add-to-pl-btn" onclick="showAddToPlaylist('${song.id}')" title="加入歌单">${ICON.plus}</button>
                 <button class="dl-btn ${dlClass}" onclick="downloadSong('${song.id}')" title="${song.downloaded ? '已下载' : '下载'}">${dlIcon}</button>
@@ -905,7 +897,7 @@ function buildSongItem(song, options = {}) {
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function releaseAudioIfDeletingFile(filename) {
@@ -1119,7 +1111,6 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playT
         }
     }
 
-    playerBar.style.display = 'flex';
     playerTitle.textContent = song.title || '未知歌曲';
     playerArtist.textContent = song.artist || '未知歌手';
     updateRangeFill(progressBar);
@@ -1661,7 +1652,7 @@ function updateRangeFill(el, color1, color2) {
     const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
     const c1 = color1 || 'var(--accent)';
     const c2 = color2 || 'rgba(255,255,255,0.12)';
-    el.style.background = `linear-gradient(to right, ${c1} 0%, ${c1} ${pct}%, ${c2} ${pct}%, ${c2} 100%)`;
+    el.style.backgroundImage = `linear-gradient(to right, ${c1} 0%, ${c1} ${pct}%, ${c2} ${pct}%, ${c2} 100%)`;
 }
 
 audio.addEventListener('timeupdate', () => {
@@ -1701,7 +1692,7 @@ function clearSeekFeedback() {
     clearTimeout(playbackState.seekFeedbackTimer);
     playbackState.seekFeedbackTimer = null;
     progressBar.removeAttribute('aria-busy');
-    if (vinylState) vinylState.textContent = state.isPlaying ? 'Playing' : 'Paused';
+    if (vinylState) vinylState.textContent = state.isPlaying ? '正在播放' : (state.currentSong ? '已暂停' : '等待播放');
 }
 
 progressBar.addEventListener('input', () => {
@@ -1730,7 +1721,7 @@ volumeBar.addEventListener('input', () => {
     playbackState.baseVolume = Number(volumeBar.value || 0) / 100;
     localStorage.setItem('music_volume', volumeBar.value);
     applyEffectiveVolume();
-    updateRangeFill(volumeBar, 'rgba(255,255,255,0.4)', 'rgba(255,255,255,0.12)');
+    updateRangeFill(volumeBar, 'var(--accent)', 'rgba(255,255,255,0.12)');
 });
 
 function setVolume(value) {
@@ -1739,7 +1730,7 @@ function setVolume(value) {
     playbackState.baseVolume = next / 100;
     localStorage.setItem('music_volume', String(next));
     applyEffectiveVolume();
-    updateRangeFill(volumeBar, 'rgba(255,255,255,0.4)', 'rgba(255,255,255,0.12)');
+    updateRangeFill(volumeBar, 'var(--accent)', 'rgba(255,255,255,0.12)');
 }
 
 function adjustVolume(delta) {
@@ -1751,7 +1742,7 @@ function isShortcutInputTarget(target = document.activeElement) {
     if (target.closest && target.closest('.modal-box, .add-to-pl-panel')) return true;
     if (target.isContentEditable) return true;
     const tag = target.tagName ? target.tagName.toLowerCase() : '';
-    return ['input', 'textarea', 'select'].includes(tag);
+    return ['input', 'textarea', 'select', 'button'].includes(tag);
 }
 
 function handleKeyboardShortcuts(e) {
@@ -1781,6 +1772,8 @@ function updatePlayButtons() {
     document.querySelectorAll('.play-btn-item').forEach(btn => {
         btn.classList.remove('playing');
         btn.innerHTML = ICON.play;
+        btn.title = '播放';
+        btn.setAttribute('aria-label', '播放 ' + (btn.closest('.song-item')?.querySelector('.song-title')?.textContent || '歌曲'));
     });
     document.querySelectorAll('.song-item').forEach(item => {
         item.classList.remove('playing-now');
@@ -1793,6 +1786,8 @@ function updatePlayButtons() {
             if (target) {
                 target.classList.add('playing');
                 target.innerHTML = state.isPlaying ? ICON.pause : ICON.play;
+                target.title = state.isPlaying ? '暂停' : '播放';
+                target.setAttribute('aria-label', target.title + ' ' + (state.currentSong.title || '歌曲'));
             }
         }
     }
@@ -1954,12 +1949,13 @@ async function loadPlaylists() {
 
 $('addPlaylistBtn').addEventListener('click', () => {
     $('playlistModal').style.display = 'flex';
+    focusDialog($('playlistModal'));
     $('playlistNameInput').value = '';
     $('playlistNameInput').focus();
 });
 
 $('cancelPlaylistBtn').addEventListener('click', () => {
-    $('playlistModal').style.display = 'none';
+    dismissDialog($('playlistModal'));
 });
 
 cancelDeleteConfirmBtn?.addEventListener('click', () => {
@@ -1996,7 +1992,7 @@ $('confirmPlaylistBtn').addEventListener('click', async () => {
         const data = await resp.json();
         if (data.success) {
             toast('歌单已创建');
-            $('playlistModal').style.display = 'none';
+            dismissDialog($('playlistModal'));
             await loadPlaylists();
         }
     } catch {
@@ -2048,15 +2044,15 @@ async function showPlaylistDetail(plId) {
             </div>
         </div>
         <div class="playlist-detail-actions">
-            <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">▶ 播放全部</button>
-            <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">+ 添加歌曲</button>
-            <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">🗑 删除</button>
+            <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">${ICON.play} 播放全部</button>
+            <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">${ICON.plus} 添加歌曲</button>
+            <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">${ICON.trash} 删除</button>
         </div>
     `;
 
     const container = $('playlistDetailSongs');
     if (!pl.songs.length) {
-        container.innerHTML = '<div class="empty-state"><p>歌单还没有歌曲</p><p class="hint">在歌曲上点击 📋 添加到歌单</p></div>';
+        container.innerHTML = '<div class="empty-state"><p>歌单还没有歌曲</p><p class="hint">点击「添加歌曲」，从收藏中挑选</p></div>';
         return;
     }
 
@@ -2102,10 +2098,10 @@ function showAddToPlaylist(songIdOrIds) {
     overlay.id = 'addToPlOverlay';
 
     let optionsHtml = state.playlists.map(pl => `
-        <div class="pl-option" onclick="addSongToPlaylist('${pl.id}')">
+        <button type="button" class="pl-option" onclick="addSongToPlaylist('${pl.id}')">
             <span class="pl-option-name">${escapeHtml(pl.name)}</span>
             <span class="pl-option-count">(${pl.songs.length})</span>
-        </div>
+        </button>
     `).join('');
 
     if (!state.playlists.length) {
@@ -2113,15 +2109,16 @@ function showAddToPlaylist(songIdOrIds) {
     }
 
     overlay.innerHTML = `
-        <div class="add-to-pl-panel">
+        <div class="add-to-pl-panel" role="dialog" aria-modal="true" aria-label="添加歌曲到歌单">
             <h3>添加到歌单</h3>
             ${optionsHtml}
-            <button class="btn-secondary" onclick="this.closest('.add-to-pl-overlay').remove()">取消</button>
+            <button class="btn-secondary" onclick="dismissDialog(this.closest('.add-to-pl-overlay'))">取消</button>
         </div>
     `;
     document.body.appendChild(overlay);
+    focusDialog(overlay);
     overlay.addEventListener('click', e => {
-        if (e.target === overlay) overlay.remove();
+        if (e.target === overlay) dismissDialog(overlay);
     });
 }
 
@@ -2140,7 +2137,7 @@ async function addSongToPlaylist(plId) {
         const data = await resp.json();
         if (data.success) {
             toast('已添加到歌单');
-            document.getElementById('addToPlOverlay').remove();
+            if ($('addToPlOverlay')) dismissDialog($('addToPlOverlay'));
             await loadPlaylists();
         }
     } catch {
@@ -2301,19 +2298,19 @@ async function batchDeleteLocalSongs() {
 function renderPlaylistsTab() {
     const container = $('playlistsGrid');
     if (!state.playlists.length) {
-        container.innerHTML = '<div class="empty-state"><p>还没有创建歌单</p><p class="hint">点击左侧栏 + 或搜索歌曲时点击 📋 创建</p></div>';
+        container.innerHTML = '<div class="empty-state"><p>还没有创建歌单</p><p class="hint">点击上方「新建歌单」，收好同一种心情</p></div>';
         return;
     }
     container.innerHTML = state.playlists.map(pl => {
         const count = pl.songs.length;
         return `
             <div class="playlist-card">
-                <div class="pl-card-top" onclick="showPlaylistDetail('${pl.id}')">
+                <button type="button" class="pl-card-top" onclick="showPlaylistDetail('${pl.id}')">
                     <div class="pl-card-icon">${renderPlaylistFolderIcon('card')}</div>
                     <div class="pl-card-name">${escapeHtml(pl.name)}</div>
                     <div class="pl-card-count">${count} 首</div>
-                </div>
-                ${count > 0 ? `<button class="pl-card-play" onclick="event.stopPropagation(); playPlaylist('${pl.id}')" title="播放全部">▶</button>` : ''}
+                </button>
+                ${count > 0 ? `<button class="pl-card-play" onclick="event.stopPropagation(); playPlaylist('${pl.id}')" title="播放全部">${ICON.play} 播放全部</button>` : ''}
             </div>
         `;
     }).join('');
@@ -2359,19 +2356,20 @@ async function showAddSongToPlaylist(plId) {
     `).join('');
 
     overlay.innerHTML = `
-        <div class="add-to-pl-panel" style="max-height:80vh;overflow-y:auto;">
+        <div class="add-to-pl-panel" role="dialog" aria-modal="true" aria-label="添加歌曲到歌单" style="max-height:80vh;overflow-y:auto;">
             <h3>从收藏添加歌曲到「${escapeHtml(pl.name)}」</h3>
             <div class="song-select-list">${itemsHtml}</div>
             <div style="display:flex;gap:8px;margin-top:12px;">
                 <button class="btn-primary" onclick="confirmAddSongsToPlaylist('${plId}')">添加选中</button>
-                <button class="btn-secondary" onclick="this.closest('.add-to-pl-overlay').remove()">取消</button>
+                <button class="btn-secondary" onclick="dismissDialog(this.closest('.add-to-pl-overlay'))">取消</button>
             </div>
         </div>
     `;
 
     document.body.appendChild(overlay);
+    focusDialog(overlay);
     overlay.addEventListener('click', e => {
-        if (e.target === overlay) overlay.remove();
+        if (e.target === overlay) dismissDialog(overlay);
     });
 }
 
@@ -2402,7 +2400,7 @@ async function confirmAddSongsToPlaylist(plId) {
         const data = await resp.json();
         if (data.success) {
             toast(`已添加 ${added} 首歌到歌单`);
-            document.getElementById('addSongsOverlay').remove();
+            if ($('addSongsOverlay')) dismissDialog($('addSongsOverlay'));
             await loadPlaylists();
             showPlaylistDetail(plId);
         }
@@ -2509,7 +2507,6 @@ async function restorePlaybackState() {
     }
     const playToken = ++playbackState.playToken;
     state.currentSong = song;
-    playerBar.style.display = 'flex';
     playerTitle.textContent = song.title || '未知歌曲';
     playerArtist.textContent = song.artist || '未知歌手';
     equalizer.classList.add('paused');
@@ -2565,15 +2562,15 @@ async function showPlaylistDetail(plId) {
             </div>
         </div>
         <div class="playlist-detail-actions">
-            <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">▶ 播放全部</button>
-            <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">+ 添加歌曲</button>
-            <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">🗑 删除</button>
+            <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">${ICON.play} 播放全部</button>
+            <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">${ICON.plus} 添加歌曲</button>
+            <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">${ICON.trash} 删除</button>
         </div>
     `;
 
     const container = $('playlistDetailSongs');
     if (!pl.songs.length) {
-        container.innerHTML = '<div class="empty-state"><p>歌单还没有歌曲</p><p class="hint">在歌曲上点击 📋 添加到歌单</p></div>';
+        container.innerHTML = '<div class="empty-state"><p>歌单还没有歌曲</p><p class="hint">点击「添加歌曲」，从收藏中挑选</p></div>';
         return;
     }
 
@@ -2601,7 +2598,7 @@ async function addSongToPlaylist(plId) {
         const data = await resp.json();
         if (data.success) {
             toast('已添加到歌单');
-            document.getElementById('addToPlOverlay')?.remove();
+            if ($('addToPlOverlay')) dismissDialog($('addToPlOverlay'));
             await loadPlaylists();
         }
     } catch {
@@ -2635,7 +2632,7 @@ async function confirmAddSongsToPlaylist(plId) {
         const data = await resp.json();
         if (data.success) {
             toast(`已添加 ${added} 首歌曲到歌单`);
-            document.getElementById('addSongsOverlay')?.remove();
+            if ($('addSongsOverlay')) dismissDialog($('addSongsOverlay'));
             await loadPlaylists();
             showPlaylistDetail(plId);
         }
@@ -2662,8 +2659,6 @@ function playPlaylist(plId) {
 }
 
 async function init() {
-    await loadPlaylists();
-    await loadFavorites();
     // 初始化按钮图标
     prevBtn.innerHTML = ICON.prev;
     nextBtn.innerHTML = ICON.next;
@@ -2680,7 +2675,9 @@ async function init() {
     }
     playbackState.baseVolume = Number(volumeBar.value || 0) / 100;
     applyEffectiveVolume();
-    updateRangeFill(volumeBar, 'rgba(255,255,255,0.4)', 'rgba(255,255,255,0.12)');
+    updateRangeFill(volumeBar, 'var(--accent)', 'rgba(255,255,255,0.12)');
+    syncImmersivePlayerUI();
+    await Promise.all([loadPlaylists(), loadFavorites()]);
     await restorePlaybackState();
     syncImmersivePlayerUI();
 }
