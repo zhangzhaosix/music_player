@@ -657,15 +657,6 @@
     "downloaded_at": "2026-07-07T10:00:07.524701"
   },
   {
-    "filename": "最后一页_1783389608.mp3",
-    "title": "最后一页",
-    "artist": "行崽ou",
-    "song_url": "qjjlb://qq?msg=%E6%9C%80%E5%90%8E%E4%B8%80%E9%A1%B5%E8%A1%8C%E5%B4%BDou&mid=0043kjX70SEIYj",
-    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
-    "resolved_url": "qjjlb://qq?msg=%E6%9C%80%E5%90%8E%E4%B8%80%E9%A1%B5%E8%A1%8C%E5%B4%BDou&mid=0043kjX70SEIYj",
-    "downloaded_at": "2026-07-07T10:00:10.643248"
-  },
-  {
     "filename": "All Falls Down (Acoustic)_1783389611.mp3",
     "title": "All Falls Down (Acoustic)",
     "artist": "Adam Christopher",
@@ -691,5 +682,25 @@
     "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
     "resolved_url": "qjjlb://qq?msg=%E8%B5%B7%E9%A3%8E%E4%BA%86&mid=003THFMp3KzsTd",
     "downloaded_at": "2026-07-07T10:00:40.767701"
+  },
+  {
+    "filename": "一直很安静_1785236960.mp3",
+    "title": "一直很安静",
+    "artist": "阿桑",
+    "song_url": "http://kw-api.cenguigui.cn?id=27102831&type=song&level=exhigh&format=mp3",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "resolved_url": "qjjlb://kuwo?id=27102831",
+    "song_ref": "qjjlb://kuwo?id=27102831",
+    "downloaded_at": "2026-07-28T19:09:32.562400"
+  },
+  {
+    "filename": "一直很安静 (Live)_1785237337.mp3",
+    "title": "一直很安静 (Live)",
+    "artist": "毛不易",
+    "song_url": "http://kw-api.cenguigui.cn?id=279159769&type=song&level=exhigh&format=mp3",
+    "source_url": "http://qjjlb.quanjian.com.cn/musicdl/",
+    "resolved_url": "qjjlb://kuwo?id=279159769",
+    "song_ref": "qjjlb://kuwo?id=279159769",
+    "downloaded_at": "2026-07-28T19:16:00.704583"
   }
 ]
