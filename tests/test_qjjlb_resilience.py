@@ -28,6 +28,7 @@ class QjjlbResilienceTests(unittest.TestCase):
     def setUp(self):
         app._search_cache.clear()
         app._lyrics_cache.clear()
+        app._qq_detail_cache.clear()
 
     def test_fetch_musicbox_json_returns_friendly_message_when_connection_is_denied(self):
         class FakeSession:
@@ -1235,6 +1236,60 @@ class QjjlbResilienceTests(unittest.TestCase):
 
         self.assertEqual(resp.status_code, 206)
         self.assertEqual(seen['range'], f'bytes=10-{10 + app.PROXY_RANGE_CHUNK_SIZE - 1}')
+
+    def test_lyrics_only_uses_cache_without_requesting_audio(self):
+        ref = 'qjjlb://qq?mid=cached-mid'
+        app.store_cached_lyrics(ref, [{'time': 1, 'text': 'cached line'}], 'qq')
+        with patch.object(app, 'get_song_info', side_effect=AssertionError('cache should avoid upstream')), \
+             patch.object(app, 'find_existing_downloaded_song', side_effect=AssertionError('audio lookup not needed')):
+            response = app.app.test_client().get('/api/song-info', query_string={'url': ref, 'lyrics_only': '1'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['lyrics_status'], 'ok')
+        self.assertTrue(response.json['lyrics_cached'])
+
+    def test_qq_playback_reuses_included_lyrics_and_prefers_compact_audio(self):
+        payload = {'song_play_url_sq': 'https://test/full.flac',
+                   'song_play_url_hq': 'https://test/hq.mp3',
+                   'song_play_url_accom': 'https://test/instrumental.mp3',
+                   'song_lyric': '[00:01.00]real line'}
+        with patch.object(app, 'fetch_qjjlb_json', return_value=(payload, None)) as fetch:
+            first, err = app.resolve_qjjlb_song_info('qjjlb://qq?mid=speed', include_lyrics=False)
+            second, err = app.resolve_qjjlb_song_info('qjjlb://qq?mid=speed')
+        self.assertIsNone(err)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(first['mp3_url'], 'https://test/hq.mp3')
+        self.assertEqual(second['mp3_url'], 'https://test/full.flac')
+        self.assertEqual(first['lyrics'], [{'time': 1, 'text': 'real line'}])
+        self.assertEqual(second['lyrics'], first['lyrics'])
+        self.assertIsNotNone(app.get_cached_lyrics('qjjlb://qq?mid=speed'))
+
+    def test_qq_expired_detail_cache_is_refreshed_and_errors_are_not_cached(self):
+        app._qq_detail_cache['expired'] = {'ts': 0, 'data': {'song_play_url': 'https://test/old.mp3'}}
+        with patch.object(app, 'fetch_qjjlb_json', side_effect=[(None, 'timeout'), ({'song_play_url': 'https://test/new.mp3'}, None)]) as fetch:
+            _, err = app.resolve_qjjlb_song_info('qjjlb://qq?mid=expired')
+            fresh, _ = app.resolve_qjjlb_song_info('qjjlb://qq?mid=expired')
+        self.assertEqual(err, 'timeout')
+        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(fresh['mp3_url'], 'https://test/new.mp3')
+
+    def test_lyrics_only_accepts_lyrics_when_audio_url_is_unavailable(self):
+        ref = 'qjjlb://qq?mid=no-audio'
+        with patch.object(app, 'get_song_info', return_value=({'lyrics': [{'time': 2, 'text': 'real line'}]}, None)), \
+             patch.object(app, 'resolve_favorite_song_info', side_effect=AssertionError('must not resolve audio')):
+            response = app.app.test_client().get('/api/song-info', query_string={'url': ref, 'lyrics_only': '1'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['lyrics_status'], 'ok')
+        self.assertEqual(response.json['lyrics'], [{'time': 2, 'text': 'real line'}])
+
+    def test_lyrics_only_returns_retryable_status_when_sources_fail(self):
+        with patch.object(app, 'get_song_info', return_value=(None, 'timeout')), \
+             patch.object(app, 'find_fallback_lyrics', return_value=(None, 'timeout')), \
+             patch.object(app, 'resolve_favorite_song_info', side_effect=AssertionError('must not resolve audio')):
+            response = app.app.test_client().get('/api/song-info', query_string={
+                'url': 'qjjlb://qq?mid=failed', 'lyrics_only': '1', 'title': 'Song', 'artist': 'Artist',
+            })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json['lyrics_status'], 'source_error')
 
     def test_api_song_info_playback_only_skips_lyrics_resolution(self):
         client = app.app.test_client()

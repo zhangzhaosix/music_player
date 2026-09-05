@@ -51,6 +51,7 @@ _search_cache = {}
 _search_cache_ttl = 300
 _lyrics_cache = {}
 _lyrics_cache_ttl = 21600
+_qq_detail_cache = {}
 SEARCH_SOURCES = ('qq', 'kuwo', 'netease')
 DEFAULT_SOURCE_LIMIT = 20
 PROXY_RANGE_CHUNK_SIZE = 128 * 1024
@@ -1209,22 +1210,28 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
         if not mid:
             return None, 'qjjlb QQ 缺少歌曲 mid'
 
-        detail_data, err = fetch_qjjlb_json(
-            'https://tang.api.s01s.cn/music_open_api.php',
-            params={'msg': params.get('msg', ''), 'type': 'json', 'mid': mid},
-        )
+        cached = _qq_detail_cache.get(mid)
+        if cached and time.time() - cached['ts'] < 300:
+            detail_data, err = cached['data'], None
+        else:
+            detail_data, err = fetch_qjjlb_json(
+                'https://tang.api.s01s.cn/music_open_api.php',
+                params={'msg': params.get('msg', ''), 'type': 'json', 'mid': mid},
+            )
         if err:
             return None, err
         if not isinstance(detail_data, dict):
             return None, 'qjjlb QQ 返回了无效数据'
 
         def pick_best_play_url(data):
+            if not include_lyrics:
+                for key, label in (('song_play_url_hq', 'HQ'), ('song_play_url_standard', 'STD'), ('song_play_url', '')):
+                    if data.get(key):
+                        return data[key], label
             if data.get('song_play_url_sq'):
                 return data.get('song_play_url_sq'), 'LOSSLESS'
             if data.get('song_play_url_pq'):
                 return data.get('song_play_url_pq'), 'LOSSLESS'
-            if data.get('song_play_url_accom'):
-                return data.get('song_play_url_accom'), 'HQ'
             if data.get('song_play_url_hq'):
                 return data.get('song_play_url_hq'), 'HQ'
             if data.get('song_play_url_standard'):
@@ -1234,6 +1241,10 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
             return data.get('song_play_url', ''), ''
 
         mp3_url, quality_label = pick_best_play_url(detail_data)
+        if mp3_url and not (cached and time.time() - cached['ts'] < 300):
+            if len(_qq_detail_cache) >= 128:
+                _qq_detail_cache.pop(next(iter(_qq_detail_cache)))
+            _qq_detail_cache[mid] = {'ts': time.time(), 'data': detail_data}
         lyric_text = str(detail_data.get('song_lyric', '') or detail_data.get('lyric', '') or '')
         info = {
             'title': detail_data.get('song_title') or detail_data.get('song_name') or '未知歌曲',
@@ -1242,11 +1253,11 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
             'source_url': detail_data.get('song_h5_url') or f'https://y.qq.com/n/ryqq/songDetail/{mid}',
             'cover_url': detail_data.get('album_pic') or detail_data.get('singer_pic') or '',
             'lyric_id': mid,
-            'lyrics': parse_lrc_text(lyric_text) if include_lyrics else [],
+            'lyrics': parse_lrc_text(lyric_text),
         }
         if quality_label:
             info['quality_label'] = quality_label
-        return (set_lyrics_state(info, song_url, 'qq') if include_lyrics else info), None
+        return set_lyrics_state(info, song_url, 'qq'), None
 
     if provider == 'kuwo':
         song_id = params.get('id', '').strip()
@@ -1532,6 +1543,7 @@ def api_song_info():
     title = request.args.get('title', '').strip()
     artist = request.args.get('artist', '').strip()
     playback_only = request.args.get('playback_only', '').strip() == '1'
+    lyrics_only = request.args.get('lyrics_only', '').strip() == '1'
     if not url:
         return jsonify({'error': '缺少歌曲链接'}), 400
 
@@ -1540,6 +1552,21 @@ def api_song_info():
         'song_ref': song_ref,
     })
     lookup_url = song_ref or url
+    if lyrics_only and not playback_only:
+        cached = get_cached_lyrics(song_ref)
+        if cached:
+            return jsonify({**cached, 'lyrics_status': 'ok', 'lyrics_message': '', 'song_ref': song_ref})
+        try:
+            info, err = get_song_info(lookup_url)
+        except requests.RequestException:
+            info, err = None, '歌词请求失败'
+        return jsonify(resolve_song_lyrics(
+            song_ref,
+            title or (info or {}).get('title', ''),
+            artist or (info or {}).get('artist', ''),
+            primary_info=info,
+            primary_error=err,
+        ))
     existing_filename = find_existing_downloaded_song(lookup_url, url, title, artist)
     if existing_filename:
         local_info = {
