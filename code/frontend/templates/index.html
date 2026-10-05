@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>我的音乐</title>
     <link rel="icon" href="data:,">
-    <link rel="stylesheet" href="/static/style.css">
-    <meta name="theme-color" content="#111a17">
+    <link rel="stylesheet" href="/static/style.css?v=20261005-1">
+    <meta name="theme-color" content="#375758">
 </head>
 <body>
     <div class="app-container">
@@ -79,8 +79,8 @@
 
             <div class="search-bar">
                 <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
-                <input type="search" id="searchInput" aria-label="搜索歌曲或歌手" placeholder="搜索歌曲、歌手" autocomplete="off" enterkeyhint="search">
-                <button id="searchBtn" type="button">搜索</button>
+                <input type="search" id="searchInput" aria-label="在线搜索歌曲或歌手" placeholder="在线搜索歌曲、歌手" autocomplete="off" enterkeyhint="search">
+                <button id="searchBtn" type="button">在线搜索</button>
             </div>
             <nav class="tabs" aria-label="音乐库分类">
                 <button class="tab" type="button" data-tab="search">搜索结果</button>
@@ -88,6 +88,10 @@
                 <button class="tab" type="button" data-tab="playlists">我的歌单</button>
                 <button class="tab" type="button" data-tab="downloads">下载</button>
             </nav>
+            <div id="listFilterBar" class="list-filter" hidden>
+                <input type="search" id="listFilterInput" aria-label="筛选当前列表" placeholder="筛选收藏中的歌名、歌手" autocomplete="off">
+                <span id="listFilterCount" class="song-count" aria-live="polite"></span>
+            </div>
 
             <div class="main-layout">
                 <div class="content-area">
@@ -176,6 +180,10 @@
             <input type="range" id="progressBar" class="progress-bar" value="0" min="0" max="100" aria-label="播放进度">
             <span id="totalTime" class="time">00:00</span>
         </div>
+        <div id="playbackNotice" class="playback-notice" role="status" aria-live="polite" hidden>
+            <span id="playbackMessage"></span>
+            <button id="retryPlaybackBtn" class="text-btn" type="button" hidden>重试播放</button>
+        </div>
         <div class="player-info">
             <span id="playerTitle" class="player-title">未选择歌曲</span>
             <span id="playerArtist" class="player-artist">打开音乐库选择播放</span>
@@ -184,12 +192,15 @@
             <button id="favoriteCurrentBtn" class="icon-btn" type="button" title="喜欢当前歌曲" aria-label="喜欢当前歌曲">
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 018-3.1 4.6 4.6 0 018 3.1z"/></svg>
             </button>
+            <button id="mobileVolumeBtn" class="ctrl-btn mobile-volume-btn" type="button" popovertarget="volumePopover" aria-label="调整音量">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zM16 9.5a4 4 0 010 5"/></svg>
+            </button>
         </div>
         <div class="equalizer" id="equalizer" aria-hidden="true">
             <span></span><span></span><span></span><span></span>
         </div>
         <div class="player-controls">
-            <button id="playModeBtn" class="ctrl-btn" type="button" title="顺序播放"></button>
+            <button id="playModeBtn" class="ctrl-btn" type="button" title="列表循环"></button>
             <button id="prevBtn" class="ctrl-btn" type="button" title="上一首" aria-label="上一首"></button>
             <button id="playBtn" class="ctrl-btn play-btn" type="button" title="播放" aria-label="播放"></button>
             <button id="nextBtn" class="ctrl-btn" type="button" title="下一首" aria-label="下一首"></button>
@@ -204,8 +215,12 @@
     </div>
 
     <div id="songActionsPopover" class="song-actions-popover" popover aria-label="歌曲操作"></div>
+    <div id="volumePopover" class="volume-popover" popover aria-label="音量调整">
+        <label for="mobileVolumeBar">音量 <output id="mobileVolumeValue">80%</output></label>
+        <input type="range" id="mobileVolumeBar" value="80" min="0" max="100" aria-label="音量">
+    </div>
     <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplayback"></audio>
 
-    <script src="/static/app.js?v=20260905-5"></script>
+    <script src="/static/app.js?v=20261005-1"></script>
 </body>
 </html>

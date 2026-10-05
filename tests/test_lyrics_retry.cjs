@@ -12,7 +12,7 @@ function fixture(fetchInfo) {
     const song = { id: 'one', title: 'Song', url: 'qjjlb://qq?mid=one', lyrics: [], lyrics_status: 'loading' };
     const context = vm.createContext({
         AbortController, AbortSignal,
-        state: { currentSong: song },
+        state: { currentSong: song, queue: [], playHistory: [] },
         playbackState: { playToken: 1, detailController: null },
         fetchOnlineSongInfo: fetchInfo,
         getSongInfoReference: s => s.url,
@@ -98,7 +98,7 @@ test('new-song lyrics start while audio is still buffering and old progress clea
         syncQueueForSong() {},
         audio: { pause() {}, removeAttribute() {}, load() {} },
         progressBar: { value: 75 }, currentTime: { textContent: '03:00' }, totalTime: { textContent: '04:00' },
-        updateRangeFill() {}, playBtn: {}, ICON: { play: '' },
+        updateRangeFill() {}, clearSeekFeedback() {}, playBtn: {}, ICON: { play: '' },
         loadOnlineSongInfo: async song => ({ song, audioUrl: '/test.mp3' }),
         hydrateCurrentSongDetails() { lyricsStarted = true; },
         startPlaybackWithLeveling: () => new Promise(r => { finishAudio = r; }),

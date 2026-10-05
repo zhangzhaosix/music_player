@@ -22,7 +22,7 @@ class FrontendAlignmentTests(unittest.TestCase):
         app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
         style_css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
 
-        self.assertEqual(app_js.count('class="playlist-detail-main"'), 2)
+        self.assertEqual(app_js.count('class="playlist-detail-main"'), 1)
         self.assertNotIn("<h2>${renderPlaylistFolderIcon('inline')}", app_js)
         self.assertIn(".playlist-detail-main", style_css)
         self.assertIn("align-items: center;", style_css)
