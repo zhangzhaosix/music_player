@@ -1,0 +1,489 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-09T03:21:46.206Z",
+  "title": "Design System: Shine",
+  "extensions": {
+    "colorMeta": {
+      "bg": {
+        "role": "neutral",
+        "displayName": "深蓝黑背景",
+        "canonical": "#02030a",
+        "tonalRamp": [
+          "oklch(15.00% 0.02287 271.66)",
+          "oklch(26.43% 0.02287 271.66)",
+          "oklch(37.86% 0.02287 271.66)",
+          "oklch(49.29% 0.02287 271.66)",
+          "oklch(60.71% 0.02287 271.66)",
+          "oklch(72.14% 0.02287 271.66)",
+          "oklch(83.57% 0.02287 271.66)",
+          "oklch(95.00% 0.02287 271.66)"
+        ]
+      },
+      "bg-deep": {
+        "role": "neutral",
+        "displayName": "深蓝渐变底",
+        "canonical": "#070a1e",
+        "tonalRamp": [
+          "oklch(15.00% 0.04252 273.35)",
+          "oklch(26.43% 0.04252 273.35)",
+          "oklch(37.86% 0.04252 273.35)",
+          "oklch(49.29% 0.04252 273.35)",
+          "oklch(60.71% 0.04252 273.35)",
+          "oklch(72.14% 0.04252 273.35)",
+          "oklch(83.57% 0.04252 273.35)",
+          "oklch(95.00% 0.04252 273.35)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "弹层与工具表面",
+        "canonical": "#10162c",
+        "tonalRamp": [
+          "oklch(15.00% 0.04468 270.60)",
+          "oklch(26.43% 0.04468 270.60)",
+          "oklch(37.86% 0.04468 270.60)",
+          "oklch(49.29% 0.04468 270.60)",
+          "oklch(60.71% 0.04468 270.60)",
+          "oklch(72.14% 0.04468 270.60)",
+          "oklch(83.57% 0.04468 270.60)",
+          "oklch(95.00% 0.04468 270.60)"
+        ]
+      },
+      "surface-deep": {
+        "role": "neutral",
+        "displayName": "深色工具条",
+        "canonical": "#080a1a",
+        "tonalRamp": [
+          "oklch(15.00% 0.03425 275.84)",
+          "oklch(26.43% 0.03425 275.84)",
+          "oklch(37.86% 0.03425 275.84)",
+          "oklch(49.29% 0.03425 275.84)",
+          "oklch(60.71% 0.03425 275.84)",
+          "oklch(72.14% 0.03425 275.84)",
+          "oklch(83.57% 0.03425 275.84)",
+          "oklch(95.00% 0.03425 275.84)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "透光面板",
+        "canonical": "#0a0e2342",
+        "tonalRamp": [
+          "oklch(15.00% 0.04376 272.92 / 0.259)",
+          "oklch(26.43% 0.04376 272.92 / 0.259)",
+          "oklch(37.86% 0.04376 272.92 / 0.259)",
+          "oklch(49.29% 0.04376 272.92 / 0.259)",
+          "oklch(60.71% 0.04376 272.92 / 0.259)",
+          "oklch(72.14% 0.04376 272.92 / 0.259)",
+          "oklch(83.57% 0.04376 272.92 / 0.259)",
+          "oklch(95.00% 0.04376 272.92 / 0.259)"
+        ]
+      },
+      "surface-soft": {
+        "role": "neutral",
+        "displayName": "柔蓝表面",
+        "canonical": "rgba(136, 196, 255, .07)",
+        "tonalRamp": [
+          "oklch(15.00% 0.10459 248.84 / 0.070)",
+          "oklch(26.43% 0.10459 248.84 / 0.070)",
+          "oklch(37.86% 0.10459 248.84 / 0.070)",
+          "oklch(49.29% 0.10459 248.84 / 0.070)",
+          "oklch(60.71% 0.10459 248.84 / 0.070)",
+          "oklch(72.14% 0.10459 248.84 / 0.070)",
+          "oklch(83.57% 0.10459 248.84 / 0.070)",
+          "oklch(95.00% 0.10459 248.84 / 0.070)"
+        ]
+      },
+      "surface-hover": {
+        "role": "neutral",
+        "displayName": "悬停蓝面",
+        "canonical": "rgba(136, 196, 255, .12)",
+        "tonalRamp": [
+          "oklch(15.00% 0.10459 248.84 / 0.120)",
+          "oklch(26.43% 0.10459 248.84 / 0.120)",
+          "oklch(37.86% 0.10459 248.84 / 0.120)",
+          "oklch(49.29% 0.10459 248.84 / 0.120)",
+          "oklch(60.71% 0.10459 248.84 / 0.120)",
+          "oklch(72.14% 0.10459 248.84 / 0.120)",
+          "oklch(83.57% 0.10459 248.84 / 0.120)",
+          "oklch(95.00% 0.10459 248.84 / 0.120)"
+        ]
+      },
+      "surface-active": {
+        "role": "neutral",
+        "displayName": "活动蓝面",
+        "canonical": "rgba(136, 196, 255, .19)",
+        "tonalRamp": [
+          "oklch(15.00% 0.10459 248.84 / 0.190)",
+          "oklch(26.43% 0.10459 248.84 / 0.190)",
+          "oklch(37.86% 0.10459 248.84 / 0.190)",
+          "oklch(49.29% 0.10459 248.84 / 0.190)",
+          "oklch(60.71% 0.10459 248.84 / 0.190)",
+          "oklch(72.14% 0.10459 248.84 / 0.190)",
+          "oklch(83.57% 0.10459 248.84 / 0.190)",
+          "oklch(95.00% 0.10459 248.84 / 0.190)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "细蓝灰边框",
+        "canonical": "rgba(166, 190, 255, .13)",
+        "tonalRamp": [
+          "oklch(15.00% 0.09618 268.57 / 0.130)",
+          "oklch(26.43% 0.09618 268.57 / 0.130)",
+          "oklch(37.86% 0.09618 268.57 / 0.130)",
+          "oklch(49.29% 0.09618 268.57 / 0.130)",
+          "oklch(60.71% 0.09618 268.57 / 0.130)",
+          "oklch(72.14% 0.09618 268.57 / 0.130)",
+          "oklch(83.57% 0.09618 268.57 / 0.130)",
+          "oklch(95.00% 0.09618 268.57 / 0.130)"
+        ]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "加强边框",
+        "canonical": "rgba(166, 190, 255, .26)",
+        "tonalRamp": [
+          "oklch(15.00% 0.09618 268.57 / 0.260)",
+          "oklch(26.43% 0.09618 268.57 / 0.260)",
+          "oklch(37.86% 0.09618 268.57 / 0.260)",
+          "oklch(49.29% 0.09618 268.57 / 0.260)",
+          "oklch(60.71% 0.09618 268.57 / 0.260)",
+          "oklch(72.14% 0.09618 268.57 / 0.260)",
+          "oklch(83.57% 0.09618 268.57 / 0.260)",
+          "oklch(95.00% 0.09618 268.57 / 0.260)"
+        ]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "近白主文字",
+        "canonical": "#f5f6ff",
+        "tonalRamp": [
+          "oklch(15.00% 0.01201 281.09)",
+          "oklch(26.43% 0.01201 281.09)",
+          "oklch(37.86% 0.01201 281.09)",
+          "oklch(49.29% 0.01201 281.09)",
+          "oklch(60.71% 0.01201 281.09)",
+          "oklch(72.14% 0.01201 281.09)",
+          "oklch(83.57% 0.01201 281.09)",
+          "oklch(95.00% 0.01201 281.09)"
+        ]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "蓝灰说明",
+        "canonical": "#c0cbe7",
+        "tonalRamp": [
+          "oklch(15.00% 0.04093 268.48)",
+          "oklch(26.43% 0.04093 268.48)",
+          "oklch(37.86% 0.04093 268.48)",
+          "oklch(49.29% 0.04093 268.48)",
+          "oklch(60.71% 0.04093 268.48)",
+          "oklch(72.14% 0.04093 268.48)",
+          "oklch(83.57% 0.04093 268.48)",
+          "oklch(95.00% 0.04093 268.48)"
+        ]
+      },
+      "text-muted": {
+        "role": "neutral",
+        "displayName": "蓝灰次级文字",
+        "canonical": "#a4b2d2",
+        "tonalRamp": [
+          "oklch(15.00% 0.04858 266.59)",
+          "oklch(26.43% 0.04858 266.59)",
+          "oklch(37.86% 0.04858 266.59)",
+          "oklch(49.29% 0.04858 266.59)",
+          "oklch(60.71% 0.04858 266.59)",
+          "oklch(72.14% 0.04858 266.59)",
+          "oklch(83.57% 0.04858 266.59)",
+          "oklch(95.00% 0.04858 266.59)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "暖金操作",
+        "canonical": "#f5c84c",
+        "tonalRamp": [
+          "oklch(15.00% 0.14652 88.56)",
+          "oklch(26.43% 0.14652 88.56)",
+          "oklch(37.86% 0.14652 88.56)",
+          "oklch(49.29% 0.14652 88.56)",
+          "oklch(60.71% 0.14652 88.56)",
+          "oklch(72.14% 0.14652 88.56)",
+          "oklch(83.57% 0.14652 88.56)",
+          "oklch(95.00% 0.14652 88.56)"
+        ]
+      },
+      "accent-ink": {
+        "role": "primary",
+        "displayName": "深金墨文字",
+        "canonical": "#231b08",
+        "tonalRamp": [
+          "oklch(15.00% 0.03393 86.77)",
+          "oklch(26.43% 0.03393 86.77)",
+          "oklch(37.86% 0.03393 86.77)",
+          "oklch(49.29% 0.03393 86.77)",
+          "oklch(60.71% 0.03393 86.77)",
+          "oklch(72.14% 0.03393 86.77)",
+          "oklch(83.57% 0.03393 86.77)",
+          "oklch(95.00% 0.03393 86.77)"
+        ]
+      },
+      "accent-soft": {
+        "role": "primary",
+        "displayName": "暖金柔面",
+        "canonical": "rgba(245, 200, 76, .13)",
+        "tonalRamp": [
+          "oklch(15.00% 0.14652 88.56 / 0.130)",
+          "oklch(26.43% 0.14652 88.56 / 0.130)",
+          "oklch(37.86% 0.14652 88.56 / 0.130)",
+          "oklch(49.29% 0.14652 88.56 / 0.130)",
+          "oklch(60.71% 0.14652 88.56 / 0.130)",
+          "oklch(72.14% 0.14652 88.56 / 0.130)",
+          "oklch(83.57% 0.14652 88.56 / 0.130)",
+          "oklch(95.00% 0.14652 88.56 / 0.130)"
+        ]
+      },
+      "blue": {
+        "role": "secondary",
+        "displayName": "浅蓝状态",
+        "canonical": "#88c4ff",
+        "tonalRamp": [
+          "oklch(15.00% 0.10459 248.84)",
+          "oklch(26.43% 0.10459 248.84)",
+          "oklch(37.86% 0.10459 248.84)",
+          "oklch(49.29% 0.10459 248.84)",
+          "oklch(60.71% 0.10459 248.84)",
+          "oklch(72.14% 0.10459 248.84)",
+          "oklch(83.57% 0.10459 248.84)",
+          "oklch(95.00% 0.10459 248.84)"
+        ]
+      },
+      "danger": {
+        "role": "neutral",
+        "displayName": "柔粉警示",
+        "canonical": "#ffb4be",
+        "tonalRamp": [
+          "oklch(15.00% 0.08814 10.31)",
+          "oklch(26.43% 0.08814 10.31)",
+          "oklch(37.86% 0.08814 10.31)",
+          "oklch(49.29% 0.08814 10.31)",
+          "oklch(60.71% 0.08814 10.31)",
+          "oklch(72.14% 0.08814 10.31)",
+          "oklch(83.57% 0.08814 10.31)",
+          "oklch(95.00% 0.08814 10.31)"
+        ]
+      },
+      "lyric-active": {
+        "role": "primary",
+        "displayName": "暖金歌词",
+        "canonical": "#ffe39d",
+        "tonalRamp": [
+          "oklch(15.00% 0.09317 88.64)",
+          "oklch(26.43% 0.09317 88.64)",
+          "oklch(37.86% 0.09317 88.64)",
+          "oklch(49.29% 0.09317 88.64)",
+          "oklch(60.71% 0.09317 88.64)",
+          "oklch(72.14% 0.09317 88.64)",
+          "oklch(83.57% 0.09317 88.64)",
+          "oklch(95.00% 0.09317 88.64)"
+        ]
+      },
+      "selection-text": {
+        "role": "secondary",
+        "displayName": "浅蓝选中文字",
+        "canonical": "#d9edff",
+        "tonalRamp": [
+          "oklch(15.00% 0.03240 245.30)",
+          "oklch(26.43% 0.03240 245.30)",
+          "oklch(37.86% 0.03240 245.30)",
+          "oklch(49.29% 0.03240 245.30)",
+          "oklch(60.71% 0.03240 245.30)",
+          "oklch(72.14% 0.03240 245.30)",
+          "oklch(83.57% 0.03240 245.30)",
+          "oklch(95.00% 0.03240 245.30)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "player-title": {
+        "displayName": "当前歌曲标题",
+        "purpose": "播放器中的歌曲名；小屏与低高度桌面缩小。"
+      },
+      "panel-title": {
+        "displayName": "区域标题",
+        "purpose": "搜索、播放、音乐库的功能标题。"
+      },
+      "lyrics": {
+        "displayName": "歌词",
+        "purpose": "居中歌词阅读，当前行另有状态强调。"
+      },
+      "body": {
+        "displayName": "基础正文",
+        "purpose": "页面基础文字。"
+      },
+      "song-title": {
+        "displayName": "列表歌名",
+        "purpose": "歌曲列表中的主要文本。"
+      },
+      "label": {
+        "displayName": "界面说明",
+        "purpose": "按钮、说明与搜索字段。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "shell",
+        "value": "0 18px 48px #000a, 0 0 90px #88c4ff20",
+        "purpose": "页面外壳的暗色投影与浅蓝环境光。"
+      },
+      {
+        "name": "panel",
+        "value": "0 14px 34px #0009",
+        "purpose": "细边框面板的暗色投影。"
+      },
+      {
+        "name": "primary",
+        "value": "0 5px 16px #f5c84c40",
+        "purpose": "主要按钮暖金柔光。"
+      },
+      {
+        "name": "lyric-active",
+        "value": "0 0 14px #f5c84c77, 0 2px 25px #f5c84c33",
+        "purpose": "霓虹歌词当前行的 text-shadow；清晰模式取消。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-state",
+        "value": "160ms ease",
+        "purpose": "按钮、列表 hover 与状态变化。"
+      },
+      {
+        "name": "lyric-state",
+        "value": "180ms ease",
+        "purpose": "歌词颜色、光晕与轻微缩放。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation: none; transition: none; scroll-behavior: auto",
+        "purpose": "prefers-reduced-motion: reduce 下关闭动态。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "single-column",
+        "value": "1100px"
+      },
+      {
+        "name": "mobile",
+        "value": "600px"
+      },
+      {
+        "name": "compact-desktop-height",
+        "value": "(max-height: 740px) and (min-width: 1101px)"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "主要按钮",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "暖金胶囊形的主要操作；源码此变体没有额外 hover 改色。",
+      "html": "<button class=\"ds-primary\" type=\"button\">播放收藏</button>",
+      "css": ".ds-primary{font:650 14px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif;min-height:34px;padding:7px 14px;border:0;border-radius:var(--control-radius,999px);color:var(--accent-ink,#231b08);background:radial-gradient(ellipse at 30% 0%,#fff5,var(--accent,#f5c84c));box-shadow:0 5px 16px #f5c84c40;cursor:pointer;white-space:nowrap}.ds-primary:disabled{opacity:.42;cursor:not-allowed}.ds-primary:focus-visible{outline:2px solid var(--blue,#88c4ff);outline-offset:3px}@media(max-width:600px){.ds-primary{min-height:44px}}"
+    },
+    {
+      "name": "次级按钮",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "柔蓝表面承载辅助操作。",
+      "html": "<button class=\"ds-secondary\" type=\"button\">取消</button>",
+      "css": ".ds-secondary{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:12px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif;min-height:34px;padding:6px 10px;border:1px solid var(--border-strong,rgba(166,190,255,.26));border-radius:999px;color:var(--text-secondary,#c0cbe7);background:var(--surface-soft,rgba(136,196,255,.07));cursor:pointer}.ds-secondary:hover{color:#fff;background:var(--surface-active,rgba(136,196,255,.19))}.ds-secondary:focus-visible{outline:2px solid var(--blue,#88c4ff);outline-offset:3px}@media(max-width:600px){.ds-secondary{min-height:44px}}"
+    },
+    {
+      "name": "搜索字段",
+      "kind": "input",
+      "refersTo": "search-input",
+      "description": "胶囊搜索框、蓝色焦点与金色操作；手机字段和按钮38px，容器整体48px。",
+      "html": "<div class=\"ds-search\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"10.5\" cy=\"10.5\" r=\"6.5\"/><path d=\"m16 16 4.5 4.5\"/></svg><input class=\"ds-input\" type=\"search\" aria-label=\"搜索歌曲或歌手\" placeholder=\"输入歌名、歌手…\"><button type=\"button\">搜索</button></div>",
+      "css": ".ds-search{position:relative;display:flex;align-items:center;gap:6px;padding:4px;border:1px solid var(--border-strong,rgba(166,190,255,.26));border-radius:999px;background:linear-gradient(90deg,#88c4ff13,var(--bg-deep,#070a1e));box-shadow:0 3px 13px #88c4ff14}.ds-search:focus-within{border-color:var(--blue,#88c4ff);box-shadow:0 0 0 3px #88c4ff1c}.ds-search svg{position:absolute;left:11px;width:15px;height:15px;fill:none;stroke:var(--blue,#88c4ff);stroke-width:1.7}.ds-input{min-width:0;width:100%;height:34px;padding:0 2px 0 28px;border:0;outline:none;background:transparent;color:var(--text-primary,#f5f6ff);font:12px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif;caret-color:var(--accent,#f5c84c)}.ds-input::placeholder{color:var(--text-muted,#a4b2d2);opacity:1}.ds-search button{flex-shrink:0;min-height:34px;padding:7px 14px;border:0;border-radius:999px;background:radial-gradient(ellipse at 30% 0%,#fff5,var(--accent,#f5c84c));color:var(--accent-ink,#231b08);box-shadow:0 5px 16px #f5c84c40;font:650 12px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif;cursor:pointer}.ds-search button:focus-visible{outline:2px solid var(--blue,#88c4ff);outline-offset:3px}@media(max-width:600px){.ds-input{height:38px;font-size:16px}.ds-search button{min-height:38px}}"
+    },
+    {
+      "name": "音乐库分类",
+      "kind": "nav",
+      "refersTo": "library-tab",
+      "description": "浅蓝活动项与四类音乐入口。",
+      "html": "<nav class=\"ds-tabs\" aria-label=\"音乐库分类\"><button class=\"ds-tab\" type=\"button\" aria-current=\"page\">搜索结果</button><button class=\"ds-tab\" type=\"button\">收藏</button><button class=\"ds-tab\" type=\"button\">我的歌单</button><button class=\"ds-tab\" type=\"button\">下载</button></nav>",
+      "css": ".ds-tabs{display:flex;gap:2px;padding:4px;border:1px solid var(--border,rgba(166,190,255,.13));border-radius:999px;background:#0004}.ds-tab{flex:1;min-width:0;min-height:30px;padding:6px 3px;border:0;border-radius:999px;background:transparent;color:var(--text-muted,#a4b2d2);font:11px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif;white-space:nowrap;cursor:pointer}.ds-tab:hover{color:var(--text-primary,#f5f6ff)}.ds-tab[aria-current=page]{color:#d9edff;background:linear-gradient(120deg,#88c4ff4d,#88c4ff25);box-shadow:0 2px 12px #88c4ff33}.ds-tab:focus-visible{outline:2px solid var(--blue,#88c4ff);outline-offset:3px}@media(max-width:600px){.ds-tab{min-height:44px;font-size:12px}}"
+    },
+    {
+      "name": "来源标签",
+      "kind": "chip",
+      "description": "静态来源信息，不是音源切换控件。",
+      "html": "<span class=\"ds-source\">QQ 音乐</span>",
+      "css": ".ds-source{display:inline-flex;align-items:center;gap:5px;padding:3px 7px;border:1px solid var(--border,rgba(166,190,255,.13));border-radius:999px;background:#0003;color:var(--text-secondary,#c0cbe7);font:11px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif}.ds-source::before{content:\"\";width:5px;height:5px;border-radius:50%;background:var(--blue,#88c4ff)}@media(max-width:1100px){.ds-source{font-size:12px}}"
+    },
+    {
+      "name": "内容面板",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "细边框和柔和暗投影承载功能区域。",
+      "html": "<section class=\"ds-panel\"><h2>歌曲搜索</h2><p>输入歌名或歌手，开始你的音乐时光。</p></section>",
+      "css": ".ds-panel{padding:14px 12px;border:1px solid var(--border,rgba(166,190,255,.13));border-radius:18px;background:#0a0e2342;box-shadow:0 14px 34px #0009;color:var(--text-primary,#f5f6ff);font:14px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif}.ds-panel h2{margin:0;font-size:15px;line-height:1.2;font-weight:700}.ds-panel p{margin:12px 0 0;color:var(--text-secondary,#c0cbe7);font-size:12px}"
+    },
+    {
+      "name": "歌单卡片",
+      "kind": "card",
+      "refersTo": "playlist-card",
+      "description": "小圆角、蓝色文件夹与歌曲数量。",
+      "html": "<button class=\"ds-playlist\" type=\"button\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M3 7V5h6l2 2h10v13H3z\"/></svg><span><strong>我的歌单</strong><small>12 首歌曲</small></span></button>",
+      "css": ".ds-playlist{display:flex;align-items:center;gap:12px;width:100%;padding:12px;border:1px solid var(--border,rgba(166,190,255,.13));border-radius:12px;background:var(--surface-soft,rgba(136,196,255,.07));color:var(--text-primary,#f5f6ff);text-align:left;font:14px/1.5 \"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif;cursor:pointer}.ds-playlist:hover{background:var(--surface-hover,rgba(136,196,255,.12))}.ds-playlist:focus-visible{outline:2px solid var(--blue,#88c4ff);outline-offset:3px}.ds-playlist svg{width:44px;height:44px;fill:none;stroke:var(--blue,#88c4ff);stroke-width:1.2}.ds-playlist strong{display:block;font-size:14px;font-weight:600}.ds-playlist small{display:block;margin-top:4px;font-size:11px;color:var(--text-muted,#a4b2d2)}"
+    },
+    {
+      "name": "霓虹歌词",
+      "kind": "custom",
+      "description": "当前行暖金高亮；容器增加 ds-clear 类即可预览清晰模式。",
+      "html": "<div class=\"ds-lyrics\"><p class=\"ds-line\">上一行歌词</p><p class=\"ds-line ds-active\">当前播放的歌词</p><p class=\"ds-line\">下一行歌词</p></div>",
+      "css": ".ds-lyrics{border:1px solid var(--border,rgba(166,190,255,.13));border-radius:16px;padding:48px 20px;background:radial-gradient(ellipse at 50% 0%,#ffdc9626,transparent 65%),radial-gradient(ellipse at 10% 100%,#6b96ff26,transparent 70%),#040614b8;box-shadow:inset 0 1px 0 #ffffff05,0 10px 24px #0004;text-align:center;font-family:\"Segoe UI\",\"Microsoft YaHei\",\"PingFang SC\",system-ui,sans-serif}.ds-line{margin:0 0 22px;color:var(--text-muted,#a4b2d2);font-size:17px;line-height:1.7;transition:color 180ms ease,text-shadow 180ms ease,transform 180ms ease}.ds-line.ds-active{color:#ffe39d;text-shadow:0 0 14px #f5c84c77,0 2px 25px #f5c84c33;transform:scale(1.04);font-weight:650}.ds-clear .ds-line.ds-active{color:#fff;text-shadow:none;transform:none}@media(max-width:600px){.ds-lyrics{padding-inline:12px}.ds-line{font-size:16px}}@media(prefers-reduced-motion:reduce){.ds-line{transition:none}}"
+    },
+    {
+      "name": "唱片插画",
+      "kind": "custom",
+      "description": "用户提供的静态唱片插画；完整展示音符、唱片和唱针，不随播放旋转。",
+      "html": "<div class=\"ds-album\" aria-hidden=\"true\"><img class=\"ds-illustration\" src=\"/static/player-illustration.png\" width=\"658\" height=\"658\" alt=\"\"></div>",
+      "css": ".ds-album{box-sizing:border-box;display:grid;place-items:center;align-self:stretch;width:124px;height:auto}.ds-illustration{box-sizing:border-box;display:block;align-self:start;width:100%;height:auto;padding:5px;border:1px solid #f5c84c38;border-radius:16px;background:#edece9;box-shadow:0 8px 24px #0008;object-fit:contain}@media(max-width:600px){.ds-album{width:88px}.ds-illustration{padding:3px}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "深蓝黑霓虹音乐空间",
+    "overview": "以用户指定参考站的深蓝黑霓虹语言承载个人听歌空间。细边框、半透明面板与柔和光晕构成层次；金色让播放和主要操作可见，蓝色标识当前歌曲与分类状态。\n\n保留 PRODUCT.md 中音乐优先、内容真实和操作直接的约束。当前首页的三栏来自已批准的方向合同，播放器插画使用用户随后指定的图片；这些首页组成记录在 Layout 中，不推广为所有未来页面必须使用的模板。",
+    "keyCharacteristics": [
+      "深蓝黑底色与细边框圆角面板。",
+      "金色主要操作、蓝色选中态，文字保持清晰。",
+      "用户原始头像与始终可见的唱片插画，统一轮廓 SVG 图标。",
+      "键盘焦点、清晰歌词模式与减少动态效果偏好。",
+      "桌面插画在左，进度与控制在右；播放键靠左、音量靠右，手机直接显示音量滑条。"
+    ],
+    "rules": [
+      {
+        "name": "The State Color Rule",
+        "body": "金色承担主要操作和霓虹歌词高亮；蓝色承担选中、当前歌曲与键盘焦点，状态另有文字或语义标记。",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "Do 使用现有金色操作与蓝色状态关系，并保留明确的文字反馈。",
+      "Do 为图标按钮保留可访问名称、可见焦点，并在手机样式下扩大触控区域。",
+      "Do 保持歌词霓虹与清晰模式都可读；尊重减少动态效果偏好。",
+      "Do 使用用户提供的头像原图，以 CSS 圆形裁切呈现。"
+    ],
+    "donts": [
+      "Don't 将真实专辑封面或 AI 头像替换已确认的唱片插画与用户头像。",
+      "Don't 在当前首页重新增加独立底部播放栏，或恢复已替换的抽屉式音乐库。",
+      "Don't 用额外音源选择、语言切换、快捷键说明面板或虚构信息增加界面负担。",
+      "Don't 将背景光晕扩展为所有正文文字的强光效果；普通说明保持清晰。"
+    ]
+  }
+}

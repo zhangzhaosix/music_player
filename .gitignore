@@ -30,3 +30,9 @@ Thumbs.db
 .vscode/
 tmp/
 temp/
+
+# Local Codex tooling, attachments and review screenshots
+.agents/
+.codex/
+.codex-remote-attachments/
+.impeccable/review/
