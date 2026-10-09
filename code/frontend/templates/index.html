@@ -5,10 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shine · 我的音乐</title>
     <link rel="icon" href="/static/shine-avatar.jpg">
-    <link rel="stylesheet" href="/static/style.css?v=20261009-shine">
+    <link rel="stylesheet" href="/static/style.css?v=20261009-sky-vivid">
     <meta name="theme-color" content="#080a1a">
 </head>
 <body>
+    <div id="skyBackground" class="ambient-sky" aria-hidden="true"><span class="sky-meteor"></span><span class="sky-meteor"></span></div>
     <div class="app-container">
         <header class="app-header" aria-label="Shine 音乐播放器">
             <div class="brand-mark">
@@ -17,6 +18,9 @@
             </div>
             <div class="header-actions">
                 <p class="shortcut-hint">Space 播放 / 暂停 <span>·</span> / 搜索</p>
+                <button id="ambientToggle" class="icon-text-btn ambient-toggle" type="button" aria-pressed="true" aria-label="动态背景">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14 3 1.8 4.2L20 9l-4.2 1.8L14 15l-1.8-4.2L8 9l4.2-1.8zM4 15l5-5M4 21l7-7M10 21l3-3"/></svg><span>动态背景</span>
+                </button>
                 <button id="quickSearchBtn" class="icon-text-btn" type="button" title="搜索音乐（/）" aria-label="搜索音乐">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><span>找首歌</span><kbd>/</kbd>
                 </button>
@@ -158,6 +162,7 @@
     <div id="songActionsPopover" class="song-actions-popover" popover aria-label="歌曲操作"></div>
     <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplayback"></audio>
 
+    <script src="/static/ambient.js?v=20261009-sky-vivid"></script>
     <script src="/static/app.js?v=20261009-shine"></script>
 </body>
 </html>

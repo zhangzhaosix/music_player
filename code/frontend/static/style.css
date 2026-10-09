@@ -20,10 +20,43 @@
     --danger: #ffb4be;
     --control-radius: 999px;
     --font: "Segoe UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    --star-color: #b7d9ff;
+    --meteor-color: #88c4ff;
+    --sky-peak: .8;
+    --sky-shell: rgba(2, 3, 10, .18);
+    --sky-panel: rgba(8, 10, 26, .66);
+    --sky-reading: rgba(4, 6, 20, .9);
 }
 html { height: 100%; background: var(--bg); }
 body { display: flow-root; min-height: 100dvh; overflow: hidden; color: var(--text-primary); font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased; background: radial-gradient(ellipse at 10% 0%, #1b2340, transparent 55%), radial-gradient(ellipse at 90% 100%, #211a38, transparent 60%), var(--bg); }
-body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 7% 15%, #88c4ff66 0 1px, transparent 2px), radial-gradient(circle at 93% 72%, #c698ff70 0 1px, transparent 2px), radial-gradient(circle at 20% 85%, #88c4ff66 0 1px, transparent 2px), radial-gradient(circle at 76% 6%, #88c4ff55 0 1px, transparent 2px); }
+body { isolation: isolate; }
+.ambient-sky { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.ambient-sky::before, .ambient-sky::after { content: ""; position: absolute; inset: -10%; pointer-events: none; opacity: .5; }
+.ambient-sky::before { background: radial-gradient(ellipse at 12% 12%, #29508080, transparent 45%); animation: skyHaze 22s ease-in-out infinite alternate; }
+.ambient-sky::after { background: radial-gradient(ellipse at 90% 78%, #33497770, transparent 42%); animation: skyHaze 28s ease-in-out -12s infinite alternate-reverse; }
+.sky-star { position: absolute; left: var(--star-x); top: var(--star-y); width: var(--star-size); height: var(--star-size); border-radius: 50%; background: var(--star-color); opacity: var(--star-opacity); }
+.sky-star.bright { box-shadow: 0 0 8px #88c4ff99; }
+.sky-star.twinkle { animation: skyTwinkle var(--twinkle-duration) ease-in-out var(--twinkle-delay) infinite alternate; }
+.sky-meteor { position: absolute; left: var(--meteor-x, 20%); top: var(--meteor-y, 2%); width: var(--meteor-length, 300px); height: 2px; opacity: 0; transform: rotate(38deg); transform-origin: right center; background: linear-gradient(90deg, transparent, #88c4ff35 30%, var(--meteor-color) 80%, #eef7ff); }
+.sky-meteor::after { content: ""; position: absolute; right: 0; top: -1px; width: 4px; height: 4px; border-radius: 50%; background: #eef7ff; box-shadow: 0 0 8px var(--meteor-color), 0 0 16px #88c4ff66; }
+.sky-meteor.is-active { animation: skyMeteor var(--meteor-duration, 2.4s) linear var(--meteor-delay, 0s) both; }
+.ambient-paused .sky-star, .ambient-paused .ambient-sky::before, .ambient-paused .ambient-sky::after { animation-play-state: paused; }
+.ambient-toggle[aria-pressed="true"] { color: var(--blue); border-color: var(--border-strong); }
+.ambient-toggle:disabled { opacity: 1; color: var(--text-muted); }
+@keyframes skyTwinkle { to { opacity: .15; } }
+@keyframes skyHaze { to { opacity: .85; transform: translate(36px, -24px) scale(1.06); } }
+@keyframes skyMeteor {
+    0% { opacity: 0; transform: translate(0, 0) rotate(38deg); }
+    15%, 65% { opacity: var(--meteor-peak, var(--sky-peak)); }
+    100% { opacity: 0; transform: translate(var(--meteor-travel, 260px), var(--meteor-drop, 203px)) rotate(38deg); }
+}
+@media (max-width: 600px) {
+    .sky-star:nth-of-type(n+39) { display: none; }
+    .sky-star.twinkle { animation: none; }
+    .ambient-sky::before, .ambient-sky::after { animation: none; opacity: .4; }
+    .ambient-toggle { min-width: 44px; }
+}
+@media (prefers-reduced-motion: reduce) { .sky-meteor { display: none; } .sky-star.twinkle, .ambient-sky::before, .ambient-sky::after { animation: none; } }
 button, input { font: inherit; }
 button { cursor: pointer; color: inherit; border: 0; }
 button:disabled { cursor: not-allowed; opacity: .42; }
@@ -39,7 +72,7 @@ input::placeholder { color: var(--text-muted); opacity: 1; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { border-radius: 8px; background: #88c4ff55; }
 * { scrollbar-width: thin; scrollbar-color: #88c4ff55 transparent; }
-.app-container { position: relative; display: flex; flex-direction: column; gap: 12px; width: calc(100% - 64px); max-width: 1280px; height: calc(100dvh - 64px); margin: 32px auto; padding: 12px; border: 1px solid var(--border); border-radius: 24px; background: radial-gradient(ellipse at 0 0, #ffffff0c, transparent 60%), radial-gradient(ellipse at 100% 100%, #88c4ff15, transparent 60%), #00000073; box-shadow: 0 18px 48px #000a, 0 0 90px #88c4ff20; }
+.app-container { position: relative; display: flex; flex-direction: column; gap: 12px; width: calc(100% - 64px); max-width: 1280px; height: calc(100dvh - 64px); margin: 32px auto; padding: 12px; border: 1px solid var(--border); border-radius: 24px; background: radial-gradient(ellipse at 0 0, #ffffff05, transparent 60%), var(--sky-shell); box-shadow: 0 18px 48px #0005; }
 .app-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-shrink: 0; min-height: 98px; padding: 12px 20px; border: 1px solid var(--border); border-radius: 18px; background: linear-gradient(120deg, #ffffff0d, #070a1ee6); }
 .brand-mark { display: flex; align-items: center; gap: 16px; min-width: 0; }
 .brand-avatar { flex-shrink: 0; width: 68px; height: 68px; object-fit: cover; object-position: 50% 42%; border-radius: 50%; border: 2px solid #ffda7899; box-shadow: 0 5px 24px #f5c84c66; }
@@ -52,8 +85,10 @@ input::placeholder { color: var(--text-muted); opacity: 1; }
 kbd { color: var(--text-muted); font: 12px var(--font); padding: 1px 5px; border: 1px solid var(--border-strong); border-radius: 4px; }
 .music-layout { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(420px, 2fr) minmax(270px, 1.08fr); gap: 12px; flex: 1; min-height: 0; }
 .panel { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 14px 12px; border: 1px solid var(--border); border-radius: 18px; background: #0a0e2342; box-shadow: 0 14px 34px #0009; }
-.player-panel { background: radial-gradient(ellipse at 50% -20%, #ffda7833, transparent 50%), #080a1a85; }
-.library-panel { background: radial-gradient(ellipse at 100% -20%, #78c3ff30, transparent 50%), #080a1a85; }
+.player-panel { background: radial-gradient(ellipse at 50% -20%, #ffda7814, transparent 50%), var(--sky-panel); }
+.library-panel { background: radial-gradient(ellipse at 100% -20%, #78c3ff14, transparent 50%), var(--sky-panel); }
+.app-header { background: linear-gradient(120deg, #ffffff05, transparent 60%), var(--sky-panel); }
+.search-panel { background: var(--sky-panel); }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; flex-shrink: 0; margin-bottom: 12px; }
 .panel-heading h2 { display: flex; align-items: center; gap: 7px; font-size: 15px; line-height: 1.2; font-weight: 700; white-space: nowrap; }
 .search-panel .panel-heading h2 svg { color: var(--blue); }
@@ -134,6 +169,7 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
 .effect-btn[aria-pressed="true"] { color: var(--accent); border-color: #f5c84c40; }
 .lyric-panels { display: flex; flex: 1; min-height: 0; }
 .lyric-panel { display: flex; width: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: radial-gradient(ellipse at 50% 0%, #ffdc9626, transparent 65%), radial-gradient(ellipse at 10% 100%, #6b96ff26, transparent 70%), #040614b8; box-shadow: inset 0 1px 0 #ffffff05, 0 10px 24px #0004; }
+.lyric-panel { background-color: var(--sky-reading); }
 .lyrics-list { position: relative; width: 100%; min-height: 0; overflow-y: auto; text-align: center; padding: 48px 20px 90px; }
 .lyric-line { margin-bottom: 22px; color: var(--text-muted); font-size: 17px; line-height: 1.7; overflow-wrap: anywhere; transition: color 180ms ease, text-shadow 180ms ease, transform 180ms ease; }
 .lyric-line.active { color: #ffe39d; text-shadow: 0 0 14px #f5c84c77, 0 2px 25px #f5c84c33; transform: scale(1.04); font-weight: 650; }
@@ -270,6 +306,7 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
 }
 @media (max-width: 600px) {
     .app-container { width: calc(100% - 16px); margin: 8px auto; padding: 8px; gap: 10px; border-radius: 20px; }
+    .header-actions { gap: 8px; }
     .app-header { padding: 12px; min-height: 88px; gap: 10px; }
     .brand-mark { gap: 12px; }
     .brand-avatar { width: 56px; height: 56px; }
