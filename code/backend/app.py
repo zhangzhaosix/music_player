@@ -7,6 +7,7 @@ import urllib.parse
 import requests
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response, stream_with_context
+from audio_analysis import AudioAnalysis, MIMES, MAX_AUDIO_BYTES, probe_audio
 
 # 配置
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,7 +55,40 @@ _lyrics_cache_ttl = 21600
 _qq_detail_cache = {}
 SEARCH_SOURCES = ('qq', 'kuwo', 'netease')
 DEFAULT_SOURCE_LIMIT = 20
-PROXY_RANGE_CHUNK_SIZE = 128 * 1024
+AUDIO_URL_SUFFIX = re.compile(r'\.(?:mp3|m4a|aac|flac|wav|ogg|opus)(?:[?#].*)?$', re.IGNORECASE)
+audio_analysis = AudioAnalysis(BASE_DIR, MUSIC_DIR)
+
+
+def playback_headers(url):
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+    if 'mu-jie.cc' in (urllib.parse.urlparse(url).netloc or '').lower():
+        headers.update({'Referer': MUSICBOX_WEB_BASE, 'Origin': MUSICBOX_ORIGIN, 'Accept': '*/*'})
+    return headers
+
+
+@app.after_request
+def register_playback_audio(response):
+    if request.path == '/api/song-info' and response.is_json and response.status_code == 200:
+        info = response.get_json()
+        url = info.get('mp3_url', '') if isinstance(info, dict) else ''
+        if isinstance(url, str) and url.startswith(('https://', 'http://')):
+            audio_analysis.register(url, playback_headers(url))
+    return response
+
+
+@app.route('/api/audio-analysis', methods=['GET', 'POST'])
+def api_audio_analysis():
+    data = (request.get_json(silent=True) or {}) if request.method == 'POST' else request.args
+    if not isinstance(data, dict) and request.method == 'POST':
+        return jsonify({'error': '无效的分析请求'}), 400
+    audio_url = data.get('audio_url', '')
+    priority = data.get('priority', 'current')
+    if not isinstance(audio_url, str) or not audio_url or priority not in ('current', 'next'):
+        return jsonify({'error': '无效的分析请求'}), 400
+    try:
+        return jsonify(audio_analysis.query(audio_url, start=request.method == 'POST', priority=priority))
+    except (OSError, ValueError):
+        return jsonify({'status': 'unavailable', 'message': '音源尚未就绪或不支持分析'})
 
 
 def format_upstream_request_error(source_name, error):
@@ -654,10 +688,10 @@ def get_local_music():
         return []
     songs = []
     for fname in os.listdir(MUSIC_DIR):
-        if fname.lower().endswith('.mp3'):
+        if os.path.splitext(fname)[1].lower() in MIMES and os.path.isfile(os.path.join(MUSIC_DIR, fname)):
             # 从文件名解析标题：去掉 _timestamp 后缀再解析歌手/歌名
             base = os.path.splitext(fname)[0]
-            base_clean = re.sub(r'_\d{10}$', '', base)
+            base_clean = re.sub(r'_\d{10,20}$', '', base)
 
             # 尝试用 parse_song_title 拆分歌手和歌名
             song_title, song_artist = parse_song_title(base_clean)
@@ -780,7 +814,7 @@ def hydrate_song_entry(song, favorites_by_id=None):
 
     song_id = str(hydrated.get('id', '') or '').strip()
     filename = existing_music_file(hydrated.get('filename', ''))
-    if not filename and song_id.lower().endswith('.mp3'):
+    if not filename and os.path.splitext(song_id)[1].lower() in MIMES:
         filename = existing_music_file(song_id)
     if not filename:
         filename = find_existing_downloaded_song(
@@ -844,7 +878,7 @@ def search_local_songs(keyword):
     return results
 
 
-def save_download_record(*, filename, title='', artist='', song_url='', source_url='', resolved_url='', song_ref=''):
+def save_download_record(*, filename, title='', artist='', song_url='', source_url='', resolved_url='', song_ref='', audio_metadata=None):
     filename = str(filename or '').strip()
     if not filename:
         return
@@ -863,6 +897,7 @@ def save_download_record(*, filename, title='', artist='', song_url='', source_u
             'resolved_url': resolved_url,
         }),
         'downloaded_at': datetime.now().isoformat(),
+        'audio': audio_metadata or {},
     })
     write_download_index(records)
 
@@ -914,7 +949,7 @@ def is_supported_song_url(song_url):
 
     if normalized.startswith('qjjlb://'):
         return True
-    if re.search(r'\.mp3(?:[?#].*)?$', normalized, flags=re.IGNORECASE):
+    if AUDIO_URL_SUFFIX.search(normalized):
         return True
 
     parsed = urllib.parse.urlparse(normalized)
@@ -1224,21 +1259,12 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
             return None, 'qjjlb QQ 返回了无效数据'
 
         def pick_best_play_url(data):
-            if not include_lyrics:
-                for key, label in (('song_play_url_hq', 'HQ'), ('song_play_url_standard', 'STD'), ('song_play_url', '')):
-                    if data.get(key):
-                        return data[key], label
-            if data.get('song_play_url_sq'):
-                return data.get('song_play_url_sq'), 'LOSSLESS'
-            if data.get('song_play_url_pq'):
-                return data.get('song_play_url_pq'), 'LOSSLESS'
-            if data.get('song_play_url_hq'):
-                return data.get('song_play_url_hq'), 'HQ'
-            if data.get('song_play_url_standard'):
-                return data.get('song_play_url_standard'), 'STD'
-            if data.get('song_play_url_fq'):
-                return data.get('song_play_url_fq'), 'LOW'
-            return data.get('song_play_url', ''), ''
+            for key, label in (('song_play_url_hq', 'HQ'), ('song_play_url_standard', 'STD'),
+                               ('song_play_url', ''), ('song_play_url_sq', 'LOSSLESS'),
+                               ('song_play_url_pq', 'LOSSLESS'), ('song_play_url_fq', 'LOW')):
+                if data.get(key):
+                    return data[key], label
+            return '', ''
 
         mp3_url, quality_label = pick_best_play_url(detail_data)
         if mp3_url and not (cached and time.time() - cached['ts'] < 300):
@@ -1327,7 +1353,7 @@ def resolve_download_target(song_url, source_url=''):
 
     last_err = None
     for candidate in candidates:
-        if re.search(r'\.mp3(?:[?#].*)?$', candidate, flags=re.IGNORECASE):
+        if AUDIO_URL_SUFFIX.search(candidate):
             return candidate, candidate, None
 
         mp3_url, err = extract_mp3_url(candidate)
@@ -1346,7 +1372,7 @@ def get_song_info(song_url, include_lyrics=True):
     if not normalized_url:
         return {'error': '无法提取歌曲链接'}, '无法提取歌曲链接'
 
-    if re.search(r'\.mp3(?:[?#].*)?$', normalized_url, flags=re.IGNORECASE):
+    if AUDIO_URL_SUFFIX.search(normalized_url):
         return {
             'title': '未知歌曲',
             'artist': '未知歌手',
@@ -1719,8 +1745,21 @@ def api_delete_music(filename):
 
 @app.route('/api/stream/<path:filename>')
 def api_stream(filename):
-    """流式播放本地 MP3 文件"""
-    return send_from_directory(MUSIC_DIR, filename, mimetype='audio/mpeg')
+    """保留原始音频；兼容旧文件扩展名与实际格式不一致的情况。"""
+    mime = MIMES.get(os.path.splitext(filename)[1].lower(), 'application/octet-stream')
+    safe_filename = existing_music_file(filename)
+    if safe_filename:
+        with open(os.path.join(MUSIC_DIR, safe_filename), 'rb') as original:
+            signature = original.read(12)
+        if signature.startswith(b'fLaC'):
+            mime = 'audio/flac'
+        elif signature.startswith(b'RIFF') and signature[8:12] == b'WAVE':
+            mime = 'audio/wav'
+        elif signature[4:8] == b'ftyp':
+            mime = 'audio/mp4'
+        elif signature.startswith(b'OggS'):
+            mime = 'audio/ogg'
+    return send_from_directory(MUSIC_DIR, filename, mimetype=mime)
 
 
 @app.route('/api/proxy-stream')
@@ -1730,29 +1769,10 @@ def api_proxy_stream():
     if not mp3_url:
         return jsonify({'error': '缺少 MP3 链接'}), 400
 
-    # musicBox 的音频直链会校验来源，命中该域名时补上最小必要头
-    stream_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    }
-    parsed = urllib.parse.urlparse(mp3_url)
-    if 'mu-jie.cc' in (parsed.netloc or '').lower():
-        stream_headers.update({
-            'Referer': MUSICBOX_WEB_BASE,
-            'Origin': MUSICBOX_ORIGIN,
-            'Accept': '*/*',
-        })
+    stream_headers = playback_headers(mp3_url)
     range_header = request.headers.get('Range')
     if range_header:
-        single_range = re.fullmatch(r'bytes=(\d+)-(\d*)', range_header.strip(), flags=re.IGNORECASE)
-        if single_range:
-            range_start = int(single_range.group(1))
-            requested_end = int(single_range.group(2)) if single_range.group(2) else None
-            range_end = range_start + PROXY_RANGE_CHUNK_SIZE - 1
-            if requested_end is not None:
-                range_end = min(range_end, requested_end)
-            stream_headers['Range'] = f'bytes={range_start}-{range_end}'
-        else:
-            stream_headers['Range'] = range_header
+        stream_headers['Range'] = range_header
     if_range_header = request.headers.get('If-Range')
     if if_range_header:
         stream_headers['If-Range'] = if_range_header
@@ -1766,6 +1786,9 @@ def api_proxy_stream():
             timeout=(4, 8),
         )
         req.raise_for_status()
+        total_length = req.headers.get('Content-Range', '').split('/')[-1] if req.headers.get('Content-Range') else req.headers.get('Content-Length', '')
+        audio_analysis.register(mp3_url, stream_headers,
+                                '|'.join((req.headers.get('ETag', ''), req.headers.get('Last-Modified', ''), total_length)))
 
         def generate():
             try:
@@ -1844,26 +1867,39 @@ def api_download():
 
     # 清理文件名中的非法字符
     safe_title = re.sub(r'[\/:*?"<>|]', '_', title).strip()
-    filename = f'{safe_title}_{int(time.time())}.mp3'
+    filename = f'{safe_title}_{time.time_ns()}.part'
     filepath = os.path.join(MUSIC_DIR, filename)
 
     # 确保目录存在
     os.makedirs(MUSIC_DIR, exist_ok=True)
 
-    # 只保留最小请求头，降低触发反爬的概率
-    dl_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    }
+    # 与现有播放使用相同音源；不重新编码下载内容。
+    dl_headers = playback_headers(mp3_url)
+    resp = None
     try:
         resp = requests.get(mp3_url, headers=dl_headers, stream=True, timeout=60)
         resp.raise_for_status()
+        if int(resp.headers.get('Content-Length', 0)) > MAX_AUDIO_BYTES:
+            raise ValueError('音频超过 100 MB 下载上限')
 
         total_size = 0
+        download_deadline = time.monotonic() + 120
         with open(filepath, 'wb') as f:
             for chunk in resp.iter_content(chunk_size=8192):
                 if chunk:
+                    if total_size + len(chunk) > MAX_AUDIO_BYTES or time.monotonic() > download_deadline:
+                        raise ValueError('音频下载超过大小或时间限制')
                     f.write(chunk)
                     total_size += len(chunk)
+
+        expected_size = int(resp.headers.get('Content-Length', 0))
+        if not total_size or (expected_size and total_size != expected_size):
+            raise ValueError('音频文件不完整')
+        metadata = probe_audio(filepath, BASE_DIR)
+        filename = os.path.splitext(filename)[0] + metadata['extension']
+        final_path = os.path.join(MUSIC_DIR, filename)
+        os.replace(filepath, final_path)
+        filepath = final_path
 
         save_download_record(
             filename=filename,
@@ -1873,6 +1909,7 @@ def api_download():
             source_url=source_url,
             resolved_url=resolved_url or mp3_url,
             song_ref=song_ref,
+            audio_metadata=metadata,
         )
 
         return jsonify({
@@ -1882,10 +1919,13 @@ def api_download():
             'size': total_size,
             'skipped': False,
         })
-    except requests.RequestException as e:
+    except (requests.RequestException, ValueError, RuntimeError, OSError) as e:
         if os.path.exists(filepath):
             os.remove(filepath)
         return jsonify({'error': f'下载失败: {str(e)}'}), 502
+    finally:
+        if resp is not None:
+            resp.close()
 
 
 @app.route('/api/favorites', methods=['GET'])

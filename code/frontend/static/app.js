@@ -78,10 +78,11 @@ let deleteConfirmResolver = null;
 let isSearchComposing = false;
 const playbackState = {
     baseVolume: Number(volumeBar?.value || 80) / 100,
-    trackGain: 1,
-    trackGainCache: new Map(),
+    trackGain: Math.pow(10, -2 / 20),
     audioPipeline: null,
     analysisToken: 0,
+    analysisController: null,
+    nextAnalysisController: null,
     playToken: 0,
     detailController: null,
     playController: null,
@@ -92,12 +93,9 @@ const playbackState = {
     seekFeedbackTimer: null,
     bufferingTimer: null,
 };
-const LEVELING_TARGET_RMS = 0.16;
-const LEVELING_ANALYZE_MS = 1200;
 const LEVELING_TIMEOUT_MS = 2500;
-const LEVELING_MIN_GAIN = 0.75;
-const LEVELING_MAX_GAIN = 1.45;
-const LEVELING_PEAK_LIMIT = 0.92;
+const LEVELING_FALLBACK_GAIN = Math.pow(10, -2 / 20);
+const LEVELING_MAX_GAIN = Math.pow(10, 6 / 20);
 const PLAYABLE_INFO_TTL_MS = 5 * 60 * 1000;
 
 // ─── SVG 图标 ──────────────────────────────────────────
@@ -1141,6 +1139,9 @@ function releaseAudioIfDeletingFile(filename) {
     if (currentFilename !== filename) return;
 
     playbackState.playToken += 1;
+    playbackState.analysisToken += 1;
+    playbackState.analysisController?.abort();
+    playbackState.nextAnalysisController?.abort();
     audio.pause();
     audio.removeAttribute('src');
     audio.load();
@@ -1233,20 +1234,27 @@ function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
 
-function getTrackCacheKey(song, audioUrl = '') {
-    if (!song) return String(audioUrl || '');
-    return String(song.filename || song.mp3_url || song.url || song.source_url || audioUrl || song.id || '');
-}
-
-function applyEffectiveVolume() {
+function applyEffectiveVolume({ immediate = false, trackChanged = false } = {}) {
     playbackState.baseVolume = clamp(Number(playbackState.baseVolume || 0), 0, 1);
-    playbackState.trackGain = clamp(Number(playbackState.trackGain || 1), 0, LEVELING_MAX_GAIN);
+    const trackValue = Number(playbackState.trackGain);
+    playbackState.trackGain = Number.isFinite(trackValue) ? clamp(trackValue, 0, LEVELING_MAX_GAIN) : LEVELING_FALLBACK_GAIN;
     if (playbackState.audioPipeline?.gain) {
         audio.volume = 1;
-        playbackState.audioPipeline.gain.gain.value = playbackState.baseVolume * playbackState.trackGain;
+        const { context, gain, trackGain } = playbackState.audioPipeline;
+        const now = context.currentTime;
+        const param = gain.gain;
+        if (typeof param.cancelAndHoldAtTime === 'function') param.cancelAndHoldAtTime(now);
+        else { param.cancelScheduledValues(now); param.setValueAtTime(param.value, now); }
+        if (immediate) param.setValueAtTime(playbackState.baseVolume, now);
+        else param.linearRampToValueAtTime(playbackState.baseVolume, now + 0.025);
+        if (trackChanged) {
+            trackGain.gain.cancelScheduledValues(now);
+            trackGain.gain.setValueAtTime(playbackState.trackGain, now);
+        }
         return;
     }
-    audio.volume = playbackState.baseVolume;
+    // The native media volume cannot amplify; unsupported Web Audio stays conservative.
+    audio.volume = playbackState.baseVolume * Math.min(LEVELING_FALLBACK_GAIN, playbackState.trackGain);
 }
 
 async function ensureAudioPipeline() {
@@ -1256,38 +1264,19 @@ async function ensureAudioPipeline() {
 
     try {
         const context = new AudioContextCtor();
-        const source = context.createMediaElementSource(audio);
-        const analyser = context.createAnalyser();
+        const trackGain = context.createGain();
         const gain = context.createGain();
-        analyser.fftSize = 2048;
-        const audioPipeline = { context, source, analyser, gain };
-        audioPipeline.source.connect(audioPipeline.analyser);
-        audioPipeline.analyser.connect(audioPipeline.gain);
-        audioPipeline.gain.connect(audioPipeline.context.destination);
+        trackGain.connect(gain);
+        gain.connect(context.destination);
+        const source = context.createMediaElementSource(audio);
+        const audioPipeline = { context, source, trackGain, gain };
+        audioPipeline.source.connect(audioPipeline.trackGain);
         playbackState.audioPipeline = audioPipeline;
-        applyEffectiveVolume();
+        applyEffectiveVolume({ immediate: true, trackChanged: true });
         return audioPipeline;
     } catch {
         return null;
     }
-}
-
-function restoreCachedTrackGain(song, audioUrl = '') {
-    const trackKey = getTrackCacheKey(song, audioUrl);
-    if (!trackKey || !playbackState.trackGainCache.has(trackKey)) {
-        playbackState.trackGain = 1;
-        applyEffectiveVolume();
-        return false;
-    }
-    playbackState.trackGain = playbackState.trackGainCache.get(trackKey) || 1;
-    applyEffectiveVolume();
-    return true;
-}
-
-function rememberTrackGain(song, audioUrl, gainValue) {
-    const trackKey = getTrackCacheKey(song, audioUrl);
-    if (!trackKey) return;
-    playbackState.trackGainCache.set(trackKey, gainValue);
 }
 
 function delay(ms) {
@@ -1349,9 +1338,15 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playT
     }
 
     let startupTimer;
+    let startupExpired = false;
     try {
-        await Promise.race([audio.play(), new Promise((_, reject) => {
+        await Promise.race([(async () => {
+            await resumeAudioContext();
+            if (startupExpired || playToken !== playbackState.playToken) throw new Error('播放请求已取消');
+            return audio.play();
+        })(), new Promise((_, reject) => {
             startupTimer = window.setTimeout(() => {
+                startupExpired = true;
                 if (playToken === playbackState.playToken) audio.pause();
                 reject(new Error('音频连接超时'));
             }, 20000);
@@ -1375,71 +1370,69 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playT
     } finally { clearTimeout(startupTimer); }
 }
 
-async function analyzeTrackGain(song, audioUrl, requestToken) {
-    const audioPipeline = await ensureAudioPipeline();
-    if (!audioPipeline) return false;
-
+async function fetchAudioAnalysis(audioUrl, { start = false, priority = 'current', signal = null, timeout = 5000 } = {}) {
     try {
-        if (audioPipeline.context.state === 'suspended') {
-            await audioPipeline.context.resume();
-        }
-        await delay(LEVELING_ANALYZE_MS);
-        if (requestToken !== playbackState.analysisToken || audio.paused) return false;
+        const response = await fetch(start ? '/api/audio-analysis' : `/api/audio-analysis?${new URLSearchParams({ audio_url: audioUrl })}`, {
+            method: start ? 'POST' : 'GET',
+            ...(start ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ audio_url: audioUrl, priority }) } : {}),
+            signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeout)]) : AbortSignal.timeout(timeout),
+        });
+        return await response.json();
+    } catch { return null; }
+}
 
-        const samples = new Float32Array(audioPipeline.analyser.fftSize);
-        audioPipeline.analyser.getFloatTimeDomainData(samples);
-        let sumSquares = 0;
-        let peak = 0;
-        for (const sample of samples) {
-            const magnitude = Math.abs(sample);
-            sumSquares += sample * sample;
-            if (magnitude > peak) peak = magnitude;
-        }
-
-        if (requestToken !== playbackState.analysisToken) return false;
-
-        const rms = Math.sqrt(sumSquares / samples.length);
-        if (!Number.isFinite(rms) || rms <= 0.0001 || !Number.isFinite(peak) || peak <= 0) {
-            return false;
-        }
-
-        let nextGain = clamp(LEVELING_TARGET_RMS / rms, LEVELING_MIN_GAIN, LEVELING_MAX_GAIN);
-        if (peak * nextGain > LEVELING_PEAK_LIMIT) {
-            nextGain = Math.min(nextGain, LEVELING_PEAK_LIMIT / peak);
-        }
-
-        playbackState.trackGain = clamp(nextGain, LEVELING_MIN_GAIN, LEVELING_MAX_GAIN);
-        rememberTrackGain(song, audioUrl, playbackState.trackGain);
-        const gainParam = audioPipeline.gain.gain;
-        const now = audioPipeline.context.currentTime;
-        const targetGain = playbackState.baseVolume * playbackState.trackGain;
-        gainParam.cancelScheduledValues(now);
-        gainParam.setValueAtTime(gainParam.value, now);
-        gainParam.linearRampToValueAtTime(targetGain, now + 0.15);
-        return true;
-    } catch {
-        return false;
+async function analyzeTrackGain(song, audioUrl, requestToken, { priority = 'current', signal = null } = {}) {
+    // Analysis only warms the server cache. Never alter the gain of an already-playing track.
+    const deadline = Date.now() + 300000;
+    let submitted = false;
+    while (Date.now() < deadline && !signal?.aborted) {
+        if (priority === 'current' && requestToken !== playbackState.analysisToken) return false;
+        // A whole-song download must not compete with startup or recovery from buffering.
+        if (!submitted && !hasPlaybackBuffer()) { await delay(1000); continue; }
+        const result = await fetchAudioAnalysis(audioUrl, { start: true, priority, signal });
+        submitted = result?.status === 'pending';
+        if (['ready', 'silent'].includes(result?.status)) return true;
+        if (['failed', 'busy'].includes(result?.status) || result?.message === '未配置 FFmpeg/FFprobe') return false;
+        await delay(2000);
     }
+    return false;
+}
+
+function hasPlaybackBuffer() {
+    if (state.isLoading || state.isBuffering || audio.paused) return false;
+    const target = Math.min(audio.currentTime + 30, audio.duration || Infinity);
+    for (let i = 0; i < audio.buffered.length; i++) {
+        if (audio.buffered.start(i) <= audio.currentTime && audio.buffered.end(i) >= target - 0.25) return true;
+    }
+    return false;
+}
+
+async function resumeAudioContext() {
+    const pipeline = await ensureAudioPipeline();
+    if (pipeline?.context.state === 'suspended') await pipeline.context.resume();
 }
 
 async function startPlaybackWithLeveling({ song, audioUrl, shouldPlay = true, seekTime = 0, saveState = false }) {
-    playbackState.analysisToken += 1;
-    playbackState.trackGain = 1;
-    applyEffectiveVolume();
-    const nextPreloader = playbackState.nextAudioPreloader;
-    if (nextPreloader?.src === new URL(audioUrl, window.location.href).href) {
-        playbackState.nextAudioPreloader = null;
-        nextPreloader.removeAttribute('src');
-        nextPreloader.load();
+    const requestToken = ++playbackState.analysisToken;
+    const playToken = playbackState.playToken;
+    playbackState.analysisController?.abort();
+    const controller = new AbortController();
+    playbackState.analysisController = controller;
+    playbackState.trackGain = LEVELING_FALLBACK_GAIN;
+    await ensureAudioPipeline();
+    if (playToken !== playbackState.playToken || controller.signal.aborted) return false;
+    applyEffectiveVolume({ immediate: true, trackChanged: true });
+    // A metadata lookup has a small fixed budget; a cold analysis never delays startup.
+    const measured = await fetchAudioAnalysis(audioUrl, { signal: controller.signal, timeout: 120 });
+    if (playToken !== playbackState.playToken || controller.signal.aborted) return false;
+    if (measured?.status === 'ready' && Number.isFinite(measured.gain_db)) {
+        playbackState.trackGain = Math.pow(10, Math.min(6, measured.gain_db) / 20);
+        applyEffectiveVolume({ immediate: true, trackChanged: true });
     }
     audio.src = audioUrl;
-    const requestToken = playbackState.analysisToken;
-    const playToken = playbackState.playToken;
-    const hasCachedGain = restoreCachedTrackGain(song, audioUrl);
     const started = await startAudioPlayback({ song, shouldPlay, seekTime, saveState, playToken });
-    if (started && shouldPlay && !hasCachedGain) {
-        // ponytail: analyze the already-playing track; startup must never wait for leveling.
-        void analyzeTrackGain(song, audioUrl, requestToken);
+    if (started && shouldPlay && !['ready', 'silent'].includes(measured?.status)) {
+        void analyzeTrackGain(song, audioUrl, requestToken, { signal: controller.signal });
     }
     return started;
 }
@@ -1463,8 +1456,16 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
         if (state.playHistory.length > 100) state.playHistory.shift();
     }
     const playToken = ++playbackState.playToken;
+    playbackState.prefetchToken += 1;
+    clearTimeout(playbackState.bufferingTimer);
+    playbackState.analysisToken += 1;
+    playbackState.analysisController?.abort();
+    playbackState.nextAnalysisController?.abort();
     playbackState.detailController?.abort();
     playbackState.playController?.abort();
+    const preloader = playbackState.nextAudioPreloader;
+    playbackState.nextAudioPreloader = null;
+    if (preloader) { preloader.removeAttribute('src'); preloader.load(); }
     const controller = new AbortController();
     playbackState.playController = controller;
     clearSeekFeedback();
@@ -1642,8 +1643,10 @@ function getAudioUrl(mp3Url) {
 function getImmediateAudioUrl(song) {
     if (!song) return '';
     if (song.filename) return `/api/stream/${encodeURIComponent(song.filename)}`;
+    // Provider URLs saved in favorites can expire or point at an obsolete redirect API.
+    if (/^qjjlb:\/\//i.test(getSongInfoReference(song))) return '';
     const directMp3Url = song.mp3_url
-        || (song.url && /\.mp3(?:[?#].*)?$/i.test(song.url) ? song.url : '');
+        || (song.url && /\.(?:mp3|m4a|aac|flac|wav|ogg|opus)(?:[?#].*)?$/i.test(song.url) ? song.url : '');
     return directMp3Url ? getAudioUrl(directMp3Url) : '';
 }
 
@@ -1684,6 +1687,7 @@ function mergeSongInfo(song, info) {
         cover_url: info.cover_url || song.cover_url,
         lyric_id: info.lyric_id || song.lyric_id,
         mp3_url: info.mp3_url || song.mp3_url,
+        quality_label: info.quality_label || song.quality_label,
         song_ref: songRef,
         source_url: info.source_url || song.source_url || song.url,
         url: song.url || songRef || info.source_url || song.source_url,
@@ -1734,7 +1738,7 @@ async function loadOnlineSongInfo(song, options = {}) {
         };
     }
 
-    let requestPromise = signal ? null : playbackState.playableInfoRequests.get(cacheKey);
+    let requestPromise = playbackState.playableInfoRequests.get(cacheKey);
     if (!requestPromise) {
         requestPromise = fetchOnlineSongInfo(songUrl, song, { playbackOnly, silent, signal });
         if (!signal) {
@@ -1743,6 +1747,7 @@ async function loadOnlineSongInfo(song, options = {}) {
         }
     }
     const info = await requestPromise;
+    if (signal?.aborted) return null;
     if (!info || !info.mp3_url) return null;
     playbackState.playableInfoCache.set(cacheKey, {
         info,
@@ -1792,6 +1797,7 @@ function retryCurrentLyrics() {
 
 async function prefetchNextSong() {
     const prefetchToken = ++playbackState.prefetchToken;
+    playbackState.nextAnalysisController?.abort();
     if (state.playMode === 'shuffle' || state.queue.length < 2 || state.queueIndex < 0) return;
     const nextSong = state.queue[(state.queueIndex + 1) % state.queue.length];
     if (!nextSong) return;
@@ -1808,6 +1814,9 @@ async function prefetchNextSong() {
     nextPreloader.src = prefetched.audioUrl;
     playbackState.nextAudioPreloader = nextPreloader;
     nextPreloader.load();
+    const controller = new AbortController();
+    playbackState.nextAnalysisController = controller;
+    void analyzeTrackGain(nextSong, prefetched.audioUrl, playbackState.analysisToken, { priority: 'next', signal: controller.signal });
     if (previousPreloader) {
         previousPreloader.removeAttribute('src');
         previousPreloader.load();
@@ -1825,19 +1834,14 @@ function togglePlayPause() {
     }
 
     if (audio.paused) {
-        audio.play().then(() => {
-            state.isPlaying = true;
-            playBtn.innerHTML = ICON.pause;
-            equalizer.classList.remove('paused');
-            updatePlayButtons();
-            syncImmersivePlayerUI();
-        }).catch(() => {
-            state.isPlaying = false;
-            playBtn.innerHTML = ICON.play;
-            equalizer.classList.add('paused');
-            updatePlayButtons();
-            syncImmersivePlayerUI();
-            setPlaybackError('播放失败，请重试或切换歌曲。');
+        const playToken = playbackState.playToken;
+        state.isLoading = true;
+        syncImmersivePlayerUI();
+        void startAudioPlayback({ song: state.currentSong || {}, shouldPlay: true, seekTime: 0, saveState: true, playToken }).then(started => {
+            if (playToken !== playbackState.playToken) return;
+            state.isLoading = false;
+            if (!started) setPlaybackError('播放失败，请重试或切换歌曲。');
+            else syncImmersivePlayerUI();
         });
     } else {
         audio.pause();
@@ -1866,6 +1870,7 @@ function setPlaybackError(message) {
 function retryCurrentPlayback() {
     if (!state.currentSong || state.isLoading) return;
     playbackState.playableInfoCache.delete(getPlayableInfoKey(state.currentSong));
+    playbackState.playableInfoCache.delete(getPlayableInfoKey(resolvePlayableSong(state.currentSong.id)));
     void playSong(state.currentSong.id, { keepQueue: true, force: true, seekTime: audio.currentTime || state.resumeTime || 0, rememberHistory: false });
 }
 $('retryPlaybackBtn').addEventListener('click', retryCurrentPlayback);
@@ -1922,15 +1927,8 @@ audio.addEventListener('ended', () => {
     syncImmersivePlayerUI();
     // 根据播放模式处理
     if (state.playMode === 'repeat') {
-        // 单曲循环：重播当前歌曲
-        audio.currentTime = 0;
-        audio.play().then(() => {
-            state.isPlaying = true;
-            playBtn.innerHTML = ICON.pause;
-            equalizer.classList.remove('paused');
-            updatePlayButtons();
-            syncImmersivePlayerUI();
-        }).catch(() => setPlaybackError('单曲循环未能继续播放，请重试。'));
+        // Start a new playback so a completed cold analysis takes effect on the next loop.
+        void playSong(state.currentSong.id, { keepQueue: true, force: true, seekTime: 0, rememberHistory: false });
     } else stepQueue(1);
 });
 

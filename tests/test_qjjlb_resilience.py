@@ -305,6 +305,11 @@ class QjjlbResilienceTests(unittest.TestCase):
         client = app.app.test_client()
 
         class DownloadResponse:
+            headers = {}
+
+            def close(self):
+                pass
+
             def raise_for_status(self):
                 return None
 
@@ -327,6 +332,9 @@ class QjjlbResilienceTests(unittest.TestCase):
         with patch.object(app, 'extract_mp3_url', side_effect=fake_extract_mp3_url), \
              patch.object(app.requests, 'get', side_effect=fake_requests_get), \
              patch.object(app.os, 'makedirs') as makedirs_mock, \
+              patch.object(app, 'probe_audio', return_value={'extension': '.mp3', 'mime': 'audio/mpeg'}), \
+              patch.object(app.os, 'replace'), \
+              patch.object(app, 'save_download_record'), \
              patch('builtins.open', mock_open()):
             resp = client.post('/api/download', json={
                 'url': 'https://legacy.example.test/song.html',
@@ -1189,7 +1197,7 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(seen['chunk_size'], 16384)
         self.assertTrue(seen['closed'])
 
-    def test_api_proxy_stream_caps_open_ended_ranges(self):
+    def test_api_proxy_stream_preserves_browser_ranges_without_small_chunk_rewrites(self):
         client = app.app.test_client()
         seen = {}
 
@@ -1197,8 +1205,8 @@ class QjjlbResilienceTests(unittest.TestCase):
             status_code = 206
             headers = {
                 'content-type': 'audio/mpeg',
-                'Content-Length': str(app.PROXY_RANGE_CHUNK_SIZE),
-                'Content-Range': f'bytes 10-{10 + app.PROXY_RANGE_CHUNK_SIZE - 1}/1000000',
+                'Content-Length': '999990',
+                'Content-Range': 'bytes 10-999999/1000000',
             }
 
             def raise_for_status(self):
@@ -1224,7 +1232,7 @@ class QjjlbResilienceTests(unittest.TestCase):
             )
 
         self.assertEqual(resp.status_code, 206)
-        self.assertEqual(seen['range'], f'bytes=10-{10 + app.PROXY_RANGE_CHUNK_SIZE - 1}')
+        self.assertEqual(seen['range'], 'bytes=10-')
 
         with patch.object(app, 'get_stream_session', return_value=FakeSession()):
             resp = client.get(
@@ -1235,7 +1243,7 @@ class QjjlbResilienceTests(unittest.TestCase):
             )
 
         self.assertEqual(resp.status_code, 206)
-        self.assertEqual(seen['range'], f'bytes=10-{10 + app.PROXY_RANGE_CHUNK_SIZE - 1}')
+        self.assertEqual(seen['range'], 'bytes=10-999999')
 
     def test_lyrics_only_uses_cache_without_requesting_audio(self):
         ref = 'qjjlb://qq?mid=cached-mid'
@@ -1258,7 +1266,7 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(fetch.call_count, 1)
         self.assertEqual(first['mp3_url'], 'https://test/hq.mp3')
-        self.assertEqual(second['mp3_url'], 'https://test/full.flac')
+        self.assertEqual(second['mp3_url'], first['mp3_url'])
         self.assertEqual(first['lyrics'], [{'time': 1, 'text': 'real line'}])
         self.assertEqual(second['lyrics'], first['lyrics'])
         self.assertIsNotNone(app.get_cached_lyrics('qjjlb://qq?mid=speed'))

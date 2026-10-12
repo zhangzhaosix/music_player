@@ -30,6 +30,7 @@ Thumbs.db
 .vscode/
 tmp/
 temp/
+.playwright-mcp/
 
 # Local Codex tooling, attachments and review screenshots
 .agents/

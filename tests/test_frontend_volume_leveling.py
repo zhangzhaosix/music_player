@@ -9,40 +9,19 @@ STATIC_DIR = ROOT / "code" / "frontend" / "static"
 
 
 class FrontendVolumeLevelingTests(unittest.TestCase):
-    def test_audio_pipeline_uses_gain_and_analyser_nodes(self):
+    def test_pipeline_keeps_song_gain_separate_from_user_volume(self):
         app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn("audioPipeline.source.connect(audioPipeline.trackGain)", app_js)
+        self.assertIn("trackGain.connect(gain)", app_js)
+        self.assertNotIn("getFloatTimeDomainData", app_js)
+        self.assertNotIn("createDynamicsCompressor", app_js)
 
-        self.assertIn("createMediaElementSource(audio)", app_js)
-        self.assertIn("createAnalyser()", app_js)
-        self.assertIn("createGain()", app_js)
-        self.assertIn("audioPipeline.source.connect(audioPipeline.analyser)", app_js)
-        self.assertIn("audioPipeline.analyser.connect(audioPipeline.gain)", app_js)
-        self.assertIn("audioPipeline.gain.connect(audioPipeline.context.destination)", app_js)
-
-    def test_playback_uses_shared_leveling_entrypoint(self):
+    def test_all_playback_entries_share_fixed_gain_startup(self):
         app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
         self.assertEqual(app_js.count("await startPlaybackWithLeveling({"), 2)
-
-    def test_switching_tracks_resets_track_gain_before_analysis(self):
-        app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-
-        self.assertIn("playbackState.trackGain = 1;", app_js)
-        self.assertIn("applyEffectiveVolume();", app_js)
-
-    def test_playback_starts_before_background_leveling(self):
-        app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        entrypoint = app_js[
-            app_js.index("async function startPlaybackWithLeveling"):
-            app_js.index("async function playSong")
-        ]
-
-        self.assertLess(
-            entrypoint.index("await startAudioPlayback("),
-            entrypoint.index("void analyzeTrackGain("),
-        )
+        entrypoint = app_js[app_js.index("async function startPlaybackWithLeveling"):app_js.index("async function playSong")]
+        self.assertLess(entrypoint.index("await startAudioPlayback("), entrypoint.index("void analyzeTrackGain("))
         self.assertNotIn("audio.pause()", entrypoint)
-        self.assertIn("linearRampToValueAtTime(targetGain, now + 0.15)", app_js)
 
     def test_seek_is_committed_once_and_has_delayed_feedback(self):
         app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
@@ -64,7 +43,6 @@ class FrontendVolumeLevelingTests(unittest.TestCase):
         self.assertIn("void prefetchNextSong();", app_js)
         self.assertIn("const nextPreloader = new Audio();", app_js)
         self.assertIn("nextPreloader.preload = 'metadata';", app_js)
-        self.assertIn("nextPreloader?.src === new URL(audioUrl, window.location.href).href", app_js)
 
 
 if __name__ == "__main__":

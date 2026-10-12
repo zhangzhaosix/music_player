@@ -16,7 +16,7 @@ function playerFixture() {
     const c = vm.createContext({
         AbortController, AbortSignal, clearTimeout,
         state: { queue: songs, queueIndex: 0, currentSong: songs[0], isPlaying: true, isLoading: false, playMode: 'shuffle', playHistory: [] },
-        playbackState: { playToken: 0, playableInfoCache: new Map() },
+        playbackState: { playToken: 0, prefetchToken: 0, playableInfoCache: new Map() },
         audio: { paused: false, currentTime: 37, pause() { this.paused = true; }, removeAttribute() {}, load() {} },
         progressBar: {}, currentTime: {}, totalTime: {}, playBtn: {}, playerTitle: {}, playerArtist: {},
         ICON: { play: 'play' }, equalizer: { classList: { add() {} } },
@@ -73,6 +73,17 @@ test('switching songs aborts an older playback request and discards its response
     assert.equal(c.started.audioUrl, '/c.mp3');
 });
 
+test('switching immediately invalidates pending prefetch and releases the old media request', async () => {
+    const c = playerFixture();
+    const events = [];
+    c.playbackState.nextAudioPreloader = { removeAttribute: name => events.push(name), load: () => events.push('load') };
+    c.loadOnlineSongInfo = () => new Promise(() => {});
+    void c.playSong('b', { keepQueue: true });
+    assert.equal(c.playbackState.prefetchToken, 1);
+    assert.equal(c.playbackState.nextAudioPreloader, null);
+    assert.deepEqual(events, ['src', 'load']);
+});
+
 test('failure stops misleading playing state and retry retains the listening position', async () => {
     const c = playerFixture();
     c.setPlaybackError('disconnected');
@@ -84,6 +95,18 @@ test('failure stops misleading playing state and retry retains the listening pos
     assert.equal(c.started.seekTime, 37);
     assert.equal(c.state.playbackError, '');
     assert.equal(c.state.currentSong.id, 'a');
+});
+
+test('retry clears both the original provider cache and the fallback provider cache', async () => {
+    const c = playerFixture();
+    c.state.currentSong = { id: 'a', song_ref: 'qjjlb://qq?mid=fallback' };
+    c.state.queue[0].song_ref = 'qjjlb://kuwo?id=original';
+    c.getPlayableInfoKey = song => song?.song_ref || song?.id;
+    c.playbackState.playableInfoCache.set(c.state.currentSong.song_ref, {});
+    c.playbackState.playableInfoCache.set(c.state.queue[0].song_ref, {});
+    c.retryCurrentPlayback();
+    assert.equal(c.playbackState.playableInfoCache.size, 0);
+    await flush();
 });
 
 test('restoring a previously playing tab keeps its progress but does not autoplay', async () => {
@@ -119,10 +142,26 @@ test('a stalled initial audio play times out and pauses the pending media reques
     c.state.currentSong = c.state.queue[0];
     c.window = { setTimeout: fn => setTimeout(fn, 1) };
     c.audio.play = () => new Promise(() => {});
+    c.resumeAudioContext = async () => {};
     load(c, 'async function startAudioPlayback(', 'async function analyzeTrackGain');
     const started = await c.startAudioPlayback({ song: c.state.currentSong, shouldPlay: true, seekTime: 0, playToken: 0 });
     assert.equal(started, false);
     assert.equal(c.audio.paused, true);
+});
+
+test('a blocked AudioContext resume also has a playback startup timeout', async () => {
+    const c = playerFixture();
+    c.window = { setTimeout: fn => setTimeout(fn, 1) };
+    let resume, latePlayCalls = 0;
+    c.resumeAudioContext = () => new Promise(resolve => { resume = resolve; });
+    c.audio.play = async () => { latePlayCalls++; };
+    load(c, 'async function startAudioPlayback(', 'async function analyzeTrackGain');
+    const started = await c.startAudioPlayback({ song: c.state.currentSong, shouldPlay: true, seekTime: 0, playToken: 0 });
+    assert.equal(started, false);
+    assert.equal(c.audio.paused, true);
+    resume();
+    await flush();
+    assert.equal(latePlayCalls, 0);
 });
 
 test('exact song titles rank above covers and artist-only matches', () => {
