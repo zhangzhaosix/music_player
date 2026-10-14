@@ -42,7 +42,8 @@ class FrontendVolumeLevelingTests(unittest.TestCase):
         self.assertIn("params.set('playback_only', '1')", app_js)
         self.assertIn("void prefetchNextSong();", app_js)
         self.assertIn("const nextPreloader = new Audio();", app_js)
-        self.assertIn("nextPreloader.preload = 'metadata';", app_js)
+        self.assertIn("nextPreloader.preload = 'auto';", app_js)
+        self.assertIn("while (!hasPlaybackBuffer())", app_js)
 
 
 if __name__ == "__main__":

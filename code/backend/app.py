@@ -5,6 +5,10 @@ import re
 import time
 import urllib.parse
 import requests
+import threading
+import copy
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from email.utils import parsedate_to_datetime
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response, stream_with_context
 from audio_analysis import AudioAnalysis, MIMES, MAX_AUDIO_BYTES, probe_audio
@@ -19,6 +23,7 @@ app = Flask(
     static_folder=os.path.join(FRONTEND_DIR, 'static'),
     static_url_path='/static',
 )
+app.logger.setLevel('INFO')
 
 MUSIC_DIR = os.path.join(BASE_DIR, '音乐合集')
 FAVORITES_FILE = os.path.join(DATA_DIR, 'favorites.json')
@@ -45,14 +50,22 @@ HEADERS = {
     'Sec-Fetch-User': '?1',
 }
 
-_qjjlb_session = None
-_musicbox_session = None
 _stream_session = None
 _search_cache = {}
 _search_cache_ttl = 300
 _lyrics_cache = {}
 _lyrics_cache_ttl = 21600
 _qq_detail_cache = {}
+_playback_cache = {}
+_playback_requests = {}
+_source_requests = {}
+_source_cache = {}
+_request_lock = threading.RLock()
+_request_context = threading.local()
+_search_workers = ThreadPoolExecutor(max_workers=3, thread_name_prefix='music-search')
+_upstream_cooldowns = {}
+SEARCH_BUDGET = 12
+CACHE_LIMIT = 128
 SEARCH_SOURCES = ('qq', 'kuwo', 'netease')
 DEFAULT_SOURCE_LIMIT = 20
 AUDIO_URL_SUFFIX = re.compile(r'\.(?:mp3|m4a|aac|flac|wav|ogg|opus)(?:[?#].*)?$', re.IGNORECASE)
@@ -64,6 +77,11 @@ def playback_headers(url):
     if 'mu-jie.cc' in (urllib.parse.urlparse(url).netloc or '').lower():
         headers.update({'Referer': MUSICBOX_WEB_BASE, 'Origin': MUSICBOX_ORIGIN, 'Accept': '*/*'})
     return headers
+
+
+@app.teardown_request
+def clear_request_budget(error):
+    _request_context.__dict__.pop('deadline', None)
 
 
 @app.after_request
@@ -117,30 +135,28 @@ def summarize_search_errors(errors):
 
 def get_qjjlb_session():
     """复用 qjjlb 上游连接"""
-    global _qjjlb_session
-    if _qjjlb_session is None:
-        _qjjlb_session = requests.Session()
-        _qjjlb_session.headers.update({
+    if not hasattr(_request_context, 'qjjlb_session'):
+        _request_context.qjjlb_session = requests.Session()
+        _request_context.qjjlb_session.headers.update({
             'User-Agent': HEADERS['User-Agent'],
             'Referer': QJJLB_BASE,
             'Origin': QJJLB_ORIGIN,
             'Accept': 'application/json, text/plain, */*',
         })
-    return _qjjlb_session
+    return _request_context.qjjlb_session
 
 
 def get_musicbox_session():
     """复用 musicBox 上游连接"""
-    global _musicbox_session
-    if _musicbox_session is None:
-        _musicbox_session = requests.Session()
-        _musicbox_session.headers.update({
+    if not hasattr(_request_context, 'musicbox_session'):
+        _request_context.musicbox_session = requests.Session()
+        _request_context.musicbox_session.headers.update({
             'User-Agent': HEADERS['User-Agent'],
             'Referer': MUSICBOX_WEB_BASE,
             'Origin': MUSICBOX_ORIGIN,
             'Accept': 'application/json, text/plain, */*',
         })
-    return _musicbox_session
+    return _request_context.musicbox_session
 
 
 def get_stream_session():
@@ -170,6 +186,8 @@ def get_cached_search_results(keyword, source_names=None, source_limit=DEFAULT_S
 
 
 def store_search_results(keyword, results, source_names=None, source_limit=DEFAULT_SOURCE_LIMIT):
+    if len(_search_cache) >= CACHE_LIMIT:
+        _search_cache.pop(next(iter(_search_cache)))
     _search_cache[make_search_cache_key(keyword, source_names, source_limit)] = {
         'ts': time.time(),
         'results': [dict(song) for song in results],
@@ -386,99 +404,119 @@ def make_qjjlb_song(provider, item, *, url='', source_url='', mp3_url='', cover_
         'songid': song_id,
         'song_ref': song_ref,
         'lyrics': parse_lrc_text(lyrics_text or item.get('lrc', '') or item.get('lyric', '') or ''),
+        **source_quality(item),
     }
 
 
-def fetch_qjjlb_json(url, params=None, timeout=20):
-    sess = get_qjjlb_session()
-    try:
-        last_err = None
-        resp = None
-        for attempt in range(2):
-            try:
-                resp = sess.get(url, params=params, timeout=timeout)
-                resp.raise_for_status()
+def fetch_upstream(url, params, session, source_name, *, as_json=True, timeout=8):
+    """One request budget, with one retry for transient failures only."""
+    host = urllib.parse.urlparse(url).netloc
+    deadline = min(getattr(_request_context, 'deadline', float('inf')),
+                   time.monotonic() + (sum(timeout) if isinstance(timeout, tuple) else timeout))
+    if _upstream_cooldowns.get(host, 0) > time.monotonic():
+        return None, f'{source_name} 暂时不可用，请稍后重试'
+    started = time.monotonic()
+    for attempt in range(2):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, f'{source_name} 读取超时，请稍后重试'
+        response = None
+        stage = 'response'
+        try:
+            response = session.get(url, params=params, timeout=(min(3, remaining), min(5, remaining)))
+            status = getattr(response, 'status_code', 200)
+            if status in (403, 429):
+                stage = f'http_{status}'
+                retry_after = getattr(response, 'headers', {}).get('Retry-After', '')
+                try:
+                    seconds = int(retry_after)
+                except (ValueError, TypeError):
+                    try:
+                        seconds = parsedate_to_datetime(retry_after).timestamp() - time.time()
+                    except (ValueError, TypeError, OverflowError):
+                        seconds = 60
+                _upstream_cooldowns[host] = time.monotonic() + max(1, seconds)
+                return None, f'{source_name} 拒绝访问或请求受限，请稍后重试'
+            response.raise_for_status()
+            stage = 'decode'
+            return (response.json() if as_json else response.text), None
+        except requests.ConnectTimeout:
+            stage = 'connect_timeout'
+            error = f'{source_name} 连接超时，请稍后重试'
+        except requests.Timeout:
+            stage = 'read_timeout'
+            return None, f'{source_name} 读取超时，请稍后重试'
+        except requests.HTTPError as exc:
+            stage = 'http_error'
+            status = getattr(exc.response, 'status_code', 0)
+            stage = f'http_{status}'
+            error = f'{source_name} HTTP {status}，请稍后重试'
+            if status not in (408, 502, 503, 504):
+                return None, error
+        except requests.RequestException as exc:
+            stage = 'connection_error'
+            error = format_upstream_request_error(source_name, exc)
+        except (json.JSONDecodeError, ValueError):
+            stage = 'invalid_data'
+            return None, f'{source_name} 返回了无效数据'
+        finally:
+            if response is not None and hasattr(response, 'close'):
+                response.close()
+            app.logger.info('upstream host=%s stage=%s attempt=%s elapsed=%.3f',
+                            host, stage, attempt + 1, time.monotonic() - started)
+        if attempt == 0 and deadline - time.monotonic() > 0.2:
+            time.sleep(0.2)
+    return None, error
+
+
+def fetch_qjjlb_json(url, params=None, timeout=8):
+    return fetch_upstream(url, params, get_qjjlb_session(), 'qjjlb', timeout=timeout)
+
+
+def fetch_qjjlb_text(url, params=None, timeout=8):
+    return fetch_upstream(url, params, get_qjjlb_session(), 'qjjlb', as_json=False, timeout=timeout)
+
+
+def fetch_musicbox_json(url, params=None, timeout=8):
+    return fetch_upstream(url, params, get_musicbox_session(), 'musicBox', timeout=timeout)
+
+
+def fetch_musicbox_text(url, params=None, timeout=8):
+    return fetch_upstream(url, params, get_musicbox_session(), 'musicBox', as_json=False, timeout=timeout)
+
+
+def source_quality(item):
+    """Catalog duration is not proof of the duration of the returned audio."""
+    expected = None
+    for key in ('duration_seconds', 'interval', 'song_duration', 'duration', 'duration_ms', 'dt', 'timelength'):
+        raw = item.get(key)
+        try:
+            if isinstance(raw, str) and ':' in raw:
+                expected = 0
+                for part in raw.split(':'):
+                    expected = expected * 60 + float(part)
+            else:
+                expected = float(raw)
+                if key in ('duration_ms', 'dt', 'timelength'):
+                    expected /= 1000
+            if 0 < expected < 86400:
                 break
-            except requests.RequestException as e:
-                last_err = e
-                if attempt == 1:
-                    raise
-                time.sleep(0.2)
-        if resp is None:
-            raise last_err
-        return resp.json(), None
-    except requests.RequestException as e:
-        return None, format_upstream_request_error('qjjlb', e)
-    except (json.JSONDecodeError, ValueError):
-        return None, 'qjjlb 返回了无效数据'
+        except (ValueError, TypeError):
+            pass
+        expected = None
+    preview = any(str(item.get(key, '')).lower() in ('true', '1')
+                  for key in ('is_preview', 'is_trial', 'preview', 'trial'))
+    return {'expected_duration': expected, 'is_preview': preview}
 
 
-def fetch_qjjlb_text(url, params=None, timeout=20):
-    sess = get_qjjlb_session()
+def incomplete_audio(actual_duration, expected_duration=None, is_preview=False):
+    if is_preview:
+        return True
     try:
-        resp = None
-        last_err = None
-        for attempt in range(2):
-            try:
-                resp = sess.get(url, params=params, timeout=timeout)
-                resp.raise_for_status()
-                break
-            except requests.RequestException as e:
-                last_err = e
-                if attempt == 1:
-                    raise
-                time.sleep(0.2)
-        if resp is None:
-            raise last_err
-        return resp.text, None
-    except requests.RequestException as e:
-        return None, format_upstream_request_error('qjjlb', e)
-
-
-def fetch_musicbox_json(url, params=None, timeout=20):
-    sess = get_musicbox_session()
-    try:
-        last_err = None
-        resp = None
-        for attempt in range(2):
-            try:
-                resp = sess.get(url, params=params, timeout=timeout)
-                resp.raise_for_status()
-                break
-            except requests.RequestException as e:
-                last_err = e
-                if attempt == 1:
-                    raise
-                time.sleep(0.2)
-        if resp is None:
-            raise last_err
-        return resp.json(), None
-    except requests.RequestException as e:
-        return None, format_upstream_request_error('musicBox', e)
-    except (json.JSONDecodeError, ValueError):
-        return None, 'musicBox 返回了无效数据'
-
-
-def fetch_musicbox_text(url, params=None, timeout=20):
-    sess = get_musicbox_session()
-    try:
-        resp = None
-        last_err = None
-        for attempt in range(2):
-            try:
-                resp = sess.get(url, params=params, timeout=timeout)
-                resp.raise_for_status()
-                break
-            except requests.RequestException as e:
-                last_err = e
-                if attempt == 1:
-                    raise
-                time.sleep(0.2)
-        if resp is None:
-            raise last_err
-        return resp.text, None
-    except requests.RequestException as e:
-        return None, format_upstream_request_error('musicBox', e)
+        actual, expected = float(actual_duration), float(expected_duration)
+        return 0 < actual < 86400 and 60 < expected < 86400 and actual < expected * 0.8 and expected - actual > 30
+    except (ValueError, TypeError):
+        return False
 
 
 def make_musicbox_netease_song(item):
@@ -507,6 +545,7 @@ def make_musicbox_netease_song(item):
         'songid': song_id,
         'song_ref': qjjlb_ref,
         'lyrics': [],
+        **source_quality(item),
     }
 
 
@@ -616,54 +655,95 @@ def search_qjjlb_kuwo(keyword, limit=10):
     return results, None
 
 
-def search_qjjlb(keyword, limit=60, source_names=None, source_limit=DEFAULT_SOURCE_LIMIT):
-    source_names = list(source_names or SEARCH_SOURCES)
+def fetch_search_source(keyword, source, source_limit, deadline):
+    fetchers = {'qq': search_qjjlb_qq, 'kuwo': search_qjjlb_kuwo,
+                'netease': lambda q, count: search_qjjlb_netease(q, 1, count)}
+    _request_context.deadline = deadline
+    try:
+        if time.monotonic() >= deadline:
+            return [], '搜索超时'
+        results, error = fetchers[source](keyword, source_limit)
+        clean = [song for song in (results or []) if isinstance(song, dict) and not song.get('is_preview')]
+        if not error:
+            with _request_lock:
+                key = (keyword, source, source_limit)
+                if len(_source_cache) >= CACHE_LIMIT:
+                    _source_cache.pop(next(iter(_source_cache)))
+                _source_cache[key] = {'ts': time.time(), 'results': copy.deepcopy(clean)}
+        return clean, error
+    except Exception:
+        app.logger.exception('search source=%s failed', source)
+        return [], f'{source} 搜索失败'
+    finally:
+        _request_context.__dict__.pop('deadline', None)
+
+
+def search_snapshots(keyword, limit=60, source_names=None, source_limit=DEFAULT_SOURCE_LIMIT):
+    sources = [source for source in (source_names or SEARCH_SOURCES) if source in SEARCH_SOURCES]
     source_limit = max(1, min(50, int(source_limit or DEFAULT_SOURCE_LIMIT)))
-    cached_results = get_cached_search_results(keyword, source_names, source_limit)
-    if cached_results is not None:
-        return cached_results
-
-    results = []
-    seen_keys = set()
-    errors = []
-    source_fetchers = {
-        'qq': lambda: search_qjjlb_qq(keyword, source_limit),
-        'kuwo': lambda: search_qjjlb_kuwo(keyword, source_limit),
-        'netease': lambda: search_qjjlb_netease(keyword, 1, source_limit),
-    }
-
-    for source_name in source_names:
-        fetcher = source_fetchers.get(source_name)
-        if not fetcher:
-            continue
-        page_results, err = fetcher()
-        if err:
-            errors.append(err)
-            continue
-        if not page_results:
-            continue
-
-        for song in page_results:
-            if not isinstance(song, dict):
+    cached = get_cached_search_results(keyword, sources, source_limit)
+    if cached is not None:
+        yield {'results': cached[:limit], 'done': True, 'source_errors': {}}
+        return
+    deadline = min(time.monotonic() + SEARCH_BUDGET, getattr(_request_context, 'deadline', float('inf')))
+    pending, results, errors, seen = {}, [], {}, set()
+    def merge(songs):
+        for song in songs:
+            identity = song_identity_key(song) or song.get('id')
+            if identity not in seen:
+                seen.add(identity)
+                results.append(dict(song))
+    with _request_lock:
+        for source in sources:
+            key = (keyword, source, source_limit)
+            hit = _source_cache.get(key)
+            if hit and time.time() - hit['ts'] < _search_cache_ttl:
+                merge(copy.deepcopy(hit['results']))
                 continue
-            song_id = song.get('id')
-            if song_id in seen_keys:
-                continue
-            seen_keys.add(song_id)
-            results.append(song)
-            if len(results) >= limit:
-                break
-
-        if len(results) >= limit:
+            future = _source_requests.get(key)
+            if future is None:
+                # Bound queued work as well as the number of running workers.
+                if len(_source_requests) >= 24:
+                    errors[source] = '搜索繁忙，请稍后重试'
+                    continue
+                future = _search_workers.submit(fetch_search_source, keyword, source, source_limit, deadline)
+                _source_requests[key] = future
+                def release(completed, key=key):
+                    with _request_lock:
+                        if _source_requests.get(key) is completed:
+                            _source_requests.pop(key, None)
+                future.add_done_callback(release)
+            pending[future] = source
+    if results and pending:
+        yield {'results': results[:limit], 'done': False, 'source_errors': dict(errors)}
+    while pending and time.monotonic() < deadline:
+        ready, _ = wait(pending, timeout=max(0, deadline - time.monotonic()), return_when=FIRST_COMPLETED)
+        if not ready:
             break
+        for future in ready:
+            source = pending.pop(future)
+            songs, error = future.result()
+            merge(songs)
+            if error:
+                errors[source] = error
+        if pending:
+            yield {'results': list(results[:limit]), 'done': False, 'source_errors': dict(errors)}
+    for future, source in pending.items():
+        errors[source] = '搜索超时'
+    if not errors:
+        with _request_lock:
+            store_search_results(keyword, results, sources, source_limit)
+    yield {'results': results[:limit], 'done': True, 'source_errors': errors}
 
-    if results:
-        store_search_results(keyword, results, source_names, source_limit)
-        return results[:limit]
 
-    if errors:
-        return {'error': summarize_search_errors(errors)}, 502
-
+def search_qjjlb(keyword, limit=60, source_names=None, source_limit=DEFAULT_SOURCE_LIMIT):
+    snapshot = None
+    for snapshot in search_snapshots(keyword, limit, source_names, source_limit):
+        pass
+    if snapshot['results']:
+        return snapshot['results']
+    if snapshot['source_errors']:
+        return {'error': summarize_search_errors(snapshot['source_errors'].values())}, 502
     return []
 
 
@@ -964,6 +1044,14 @@ def normalize_song_match_text(text):
     return re.sub(r'[\s·•－—\-_/()（）\[\]【】,，.。！？!?\'"“”‘’]+', '', str(text or '').lower())
 
 
+def matching_artist_credits(candidate, target):
+    def credits(value):
+        parts = re.split(r'[/、,&＆;；·]|\bfeat\.?\s+|\bft\.?\s+|\bwith\s+', str(value or ''), flags=re.IGNORECASE)
+        return {normalize_song_match_text(part) for part in parts if normalize_song_match_text(part)}
+    expected, actual = credits(target), credits(candidate)
+    return bool(expected) and '未知歌手' not in expected and expected.issubset(actual)
+
+
 def score_song_match(candidate, title, artist):
     if not isinstance(candidate, dict):
         return -1
@@ -981,7 +1069,7 @@ def score_song_match(candidate, title, artist):
             score += 5
 
     if target_artist and candidate_artist:
-        if candidate_artist == target_artist:
+        if candidate_artist == target_artist or matching_artist_credits(candidate.get('artist'), artist):
             score += 6
         elif target_artist in candidate_artist or candidate_artist in target_artist:
             score += 3
@@ -991,7 +1079,7 @@ def score_song_match(candidate, title, artist):
     return score
 
 
-def resolve_favorite_song_info(fav):
+def resolve_favorite_song_info(fav, include_lyrics=True):
     if not isinstance(fav, dict):
         return None, '无效的收藏数据'
 
@@ -1001,10 +1089,10 @@ def resolve_favorite_song_info(fav):
     direct_info = None
 
     if is_supported_song_url(source_url):
-        info, err = get_song_info(source_url)
+        info, err = get_song_info(source_url, include_lyrics=include_lyrics)
         if info and not err and info.get('mp3_url'):
             direct_info = info
-            if has_real_lyrics_entries(info.get('lyrics')) or has_real_lyrics_entries(fav.get('lyrics')):
+            if not include_lyrics or has_real_lyrics_entries(info.get('lyrics')) or has_real_lyrics_entries(fav.get('lyrics')):
                 return info, None
 
     query = ' '.join(part for part in (title, artist) if part).strip()
@@ -1015,17 +1103,20 @@ def resolve_favorite_song_info(fav):
 
     search_results = search_qjjlb(query, limit=20, source_names=SEARCH_SOURCES, source_limit=10)
     if isinstance(search_results, tuple):
-        return None, search_results[1]
+        payload, _ = search_results
+        return None, payload.get('error', '未找到可播放歌曲')
 
     best = None
     best_score = -1
     for candidate in search_results or []:
         score = score_song_match(candidate, title, artist)
-        if score > best_score:
+        if (normalize_song_match_text(candidate.get('title')) == normalize_song_match_text(title)
+                and matching_artist_credits(candidate.get('artist'), artist)
+                and score > best_score):
             best_score = score
             best = candidate
 
-    if not best or best_score <= 0:
+    if not best or best_score < 16:
         return None, '未找到可播放歌曲'
 
     candidate_url = str(best.get('source_url', '') or '').strip()
@@ -1035,9 +1126,9 @@ def resolve_favorite_song_info(fav):
         candidate_url = ''
 
     if candidate_url:
-        info, err = get_song_info(candidate_url)
+        info, err = get_song_info(candidate_url, include_lyrics=include_lyrics)
         if info and not err and info.get('mp3_url'):
-            return info, None
+            return {**info, 'song_ref': song_ref_from_song(best) or info.get('song_ref', '')}, None
 
     if best.get('mp3_url'):
         return best, None
@@ -1190,6 +1281,47 @@ def set_lyrics_state(info, song_ref='', lyrics_source='', lyrics_error=''):
 
 
 def resolve_qjjlb_song_info(song_url, include_lyrics=True):
+    if include_lyrics:
+        return resolve_qjjlb_song_info_uncached(song_url, include_lyrics=True)
+    key = qjjlb_song_identity_key_from_url(song_url)
+    with _request_lock:
+        cached = _playback_cache.get(key)
+        if cached and time.time() - cached['ts'] < 300:
+            return copy.deepcopy(cached['info']), None
+        event = _playback_requests.get(key)
+        owner = event is None
+        if owner:
+            event = threading.Event()
+            _playback_requests[key] = event
+    if not owner:
+        if not event.wait(timeout=SEARCH_BUDGET):
+            return None, '播放解析超时，请重试'
+        with _request_lock:
+            cached = _playback_cache.get(key)
+        return (copy.deepcopy(cached['info']), None) if cached else (None, '音源解析失败，请重试')
+    previous = getattr(_request_context, 'deadline', None)
+    _request_context.deadline = min(previous or float('inf'), time.monotonic() + SEARCH_BUDGET)
+    try:
+        info, error = resolve_qjjlb_song_info_uncached(song_url, include_lyrics=False)
+        if info and not error and info.get('mp3_url'):
+            if info.get('is_preview'):
+                return None, '此音源为试听片段，请选择其他版本'
+            with _request_lock:
+                if len(_playback_cache) >= CACHE_LIMIT:
+                    _playback_cache.pop(next(iter(_playback_cache)))
+                _playback_cache[key] = {'ts': time.time(), 'info': copy.deepcopy(info)}
+        return info, error
+    finally:
+        if previous is None:
+            _request_context.__dict__.pop('deadline', None)
+        else:
+            _request_context.deadline = previous
+        with _request_lock:
+            _playback_requests.pop(key, None)
+            event.set()
+
+
+def resolve_qjjlb_song_info_uncached(song_url, include_lyrics=True):
     parsed = urllib.parse.urlparse(str(song_url).strip())
     if (parsed.scheme or '').lower() != 'qjjlb':
         return None, None
@@ -1233,6 +1365,7 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
             'cover_url': detail.get('pic', '') or detail.get('cover', '') or '',
             'lyric_id': song_id,
             'lyrics': parse_lrc_text(lyric_text),
+            **source_quality(detail),
         }
         return (
             set_lyrics_state(info, song_url, 'netease', lyric_err)
@@ -1280,6 +1413,7 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
             'cover_url': detail_data.get('album_pic') or detail_data.get('singer_pic') or '',
             'lyric_id': mid,
             'lyrics': parse_lrc_text(lyric_text),
+            **source_quality(detail_data),
         }
         if quality_label:
             info['quality_label'] = quality_label
@@ -1318,6 +1452,7 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
             'cover_url': payload.get('pic', '') or '',
             'lyric_id': song_id,
             'lyrics': parse_lrc_text(lyric_payload) if include_lyrics else [],
+            **source_quality(payload),
         }
         return (
             set_lyrics_state(info, song_url, 'kuwo', lyric_error)
@@ -1333,6 +1468,8 @@ def extract_mp3_url(song_url):
     info, err = get_song_info(song_url)
     if err:
         return None, err
+    if info.get('is_preview'):
+        return None, '此音源为试听片段，请选择其他版本'
 
     mp3_url = str(info.get('mp3_url', '') or '').strip()
     if not mp3_url:
@@ -1529,6 +1666,17 @@ def api_search():
         return jsonify({'error': 'source_limit 必须是数字'}), 400
     source_limit = max(1, min(50, source_limit))
 
+    if request.args.get('stream') == '1':
+        def generate():
+            local = search_local_songs(q)
+            if local:
+                yield json.dumps({'results': decorate_search_results(local), 'done': False, 'source_errors': {}}, ensure_ascii=False) + '\n'
+            for snapshot in search_snapshots(q, len(SEARCH_SOURCES) * source_limit, source_limit=source_limit):
+                snapshot['results'] = decorate_search_results(snapshot['results'] or local)
+                yield json.dumps(snapshot, ensure_ascii=False) + '\n'
+        return Response(stream_with_context(generate()), mimetype='application/x-ndjson',
+                        headers={'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no'})
+
     results = search_qjjlb(q, limit=len(SEARCH_SOURCES) * source_limit, source_names=SEARCH_SOURCES, source_limit=source_limit)
     if isinstance(results, tuple):
         payload, status_code = results
@@ -1536,13 +1684,16 @@ def api_search():
         if local_results:
             results = local_results
         elif int(status_code or 500) >= 500:
-            return jsonify(payload)
+            return jsonify(payload), status_code
         else:
             return jsonify(payload), status_code
     elif not results:
         results = search_local_songs(q)
 
-    # 标记已下载和已收藏状态
+    return jsonify({'results': decorate_search_results(results)})
+
+
+def decorate_search_results(results):
     local_songs = {s['id'] for s in get_local_music()}
     favs = get_favorites_map()
 
@@ -1558,7 +1709,7 @@ def api_search():
             song['filename'] = existing_filename
         song['favorited'] = is_song_favorited(song, favs)
 
-    return jsonify({'results': results})
+    return results
 
 
 @app.route('/api/song-info')
@@ -1578,6 +1729,15 @@ def api_song_info():
         'song_ref': song_ref,
     })
     lookup_url = song_ref or url
+    if playback_only:
+        _request_context.deadline = time.monotonic() + SEARCH_BUDGET
+        if request.args.get('refresh') == '1':
+            with _request_lock:
+                _playback_cache.pop(qjjlb_song_identity_key_from_url(lookup_url), None)
+                parsed = urllib.parse.urlparse(lookup_url)
+                if parsed.netloc == 'qq':
+                    mid = urllib.parse.parse_qs(parsed.query).get('mid', [''])[0]
+                    _qq_detail_cache.pop(mid, None)
     if lyrics_only and not playback_only:
         cached = get_cached_lyrics(song_ref)
         if cached:
@@ -1656,11 +1816,11 @@ def api_song_info():
         fallback_info, fallback_err = resolve_favorite_song_info({
             'title': title,
             'artist': artist,
-            'url': lookup_url,
-            'source_url': lookup_url,
             'lyrics': info.get('lyrics') if info else [],
-        })
+        }, include_lyrics=not playback_only)
         if fallback_info:
+            if playback_only:
+                return jsonify(fallback_info)
             fallback_ref = song_ref_from_song(fallback_info) or song_ref
             fallback_info.update(resolve_song_lyrics(
                 fallback_ref,
@@ -1786,6 +1946,10 @@ def api_proxy_stream():
             timeout=(4, 8),
         )
         req.raise_for_status()
+        content_type = req.headers.get('Content-Type', '').lower()
+        if req.headers.get('Content-Length') == '0' or content_type.startswith(('text/', 'application/json')):
+            req.close()
+            return jsonify({'error': '上游返回了空音源或非音频内容，请重新选择歌曲'}), 502
         total_length = req.headers.get('Content-Range', '').split('/')[-1] if req.headers.get('Content-Range') else req.headers.get('Content-Length', '')
         audio_analysis.register(mp3_url, stream_headers,
                                 '|'.join((req.headers.get('ETag', ''), req.headers.get('Last-Modified', ''), total_length)))
@@ -1958,6 +2122,9 @@ def api_add_favorite():
         'filename': data.get('filename', ''),
         'downloaded': data.get('downloaded', False),
         'added_at': datetime.now().isoformat(),
+        'expected_duration': data.get('expected_duration'),
+        'actual_duration': data.get('actual_duration'),
+        'is_preview': bool(data.get('is_preview', False)),
     }
     fav = hydrate_song_entry(fav)
     favs = read_json(FAVORITES_FILE)

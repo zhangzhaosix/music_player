@@ -36,7 +36,7 @@
                 </div>
                 <div class="source-badges" aria-label="当前支持的音乐来源"><span class="source-qq">QQ 音乐</span><span class="source-netease">网易云</span><span class="source-kuwo">酷我</span></div>
                 <div class="search-summary"><span id="searchStatus" role="status" aria-live="polite">搜索一首喜欢的歌吧</span><span id="searchResultCount">0 首</span></div>
-                <div id="searchMiniResults" class="search-mini-list"><div class="empty-state"><p>今天，想听什么？</p><p class="hint">输入歌名或歌手，开始你的音乐时光。</p></div></div>
+                <div id="searchMiniResults" class="search-mini-list song-list"><div class="empty-state"><p>今天，想听什么？</p><p class="hint">输入歌名或歌手，开始你的音乐时光。</p></div></div>
             </section>
             <section id="player" class="panel player-panel" aria-labelledby="playerHeading">
                 <div class="panel-heading"><h2 id="playerHeading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-3a8 8 0 0116 0v3M4 13h3v7H4a2 2 0 01-2-2v-3a2 2 0 012-2zm16 0h-3v7h3a2 2 0 002-2v-3a2 2 0 00-2-2z"/></svg>正在播放</h2><span id="vinylState" class="playback-state" role="status">等待播放</span></div>
@@ -62,7 +62,7 @@
             </section>
             <aside id="libraryPanel" class="panel library-panel" aria-label="播放列表">
                 <div class="panel-heading"><h2><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v14H4zM8 9h8M8 13h5"/></svg>播放列表</h2><div class="library-controls"><button id="playModeBtn" class="ctrl-btn" type="button" title="列表循环"></button><button id="queueBtn" class="ctrl-btn" type="button" title="播放队列" aria-label="播放队列" aria-controls="tab-queue" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h12M4 12h12M4 17h8M19 15l2 2-2 2"/></svg></button></div></div>
-                <nav class="tabs" aria-label="音乐库分类"><button class="tab active" type="button" data-tab="search">搜索结果</button><button class="tab" type="button" data-tab="favorites">收藏</button><button class="tab" type="button" data-tab="playlists">我的歌单</button><button class="tab" type="button" data-tab="downloads">下载</button></nav>
+                <nav class="tabs" aria-label="音乐库分类"><button class="tab active" type="button" data-tab="queue">队列</button><button class="tab" type="button" data-tab="favorites">收藏</button><button class="tab" type="button" data-tab="playlists">我的歌单</button><button class="tab" type="button" data-tab="downloads">下载</button></nav>
             <div id="listFilterBar" class="list-filter" hidden>
                 <input type="search" id="listFilterInput" aria-label="筛选当前列表" placeholder="筛选收藏中的歌名、歌手" autocomplete="off">
                 <span id="listFilterCount" class="song-count" aria-live="polite"></span>
@@ -70,9 +70,6 @@
 
             <div class="main-layout">
                 <div class="content-area">
-                    <div id="tab-search" class="tab-content active">
-                        <div id="searchResults" class="song-list" aria-busy="false"></div>
-                    </div>
                     <div id="tab-favorites" class="tab-content">
                         <div class="favorites-sticky-tools">
                         <div class="collection-tools">
@@ -117,7 +114,7 @@
                         </div>
                         <div id="playlistDetailSongs" class="song-list"></div>
                     </div>
-                    <div id="tab-queue" class="tab-content">
+                    <div id="tab-queue" class="tab-content active">
                         <div class="queue-heading"><div><h3>播放队列</h3><p id="queueSummary" class="song-count"></p></div><button id="locatePlayingBtn" class="text-btn" type="button">定位当前歌曲</button></div>
                         <div id="queueSongs" class="song-list"></div>
                     </div>

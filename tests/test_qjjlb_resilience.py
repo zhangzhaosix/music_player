@@ -27,6 +27,9 @@ class FakeResponse:
 class QjjlbResilienceTests(unittest.TestCase):
     def setUp(self):
         app._search_cache.clear()
+        app._source_cache.clear()
+        app._playback_cache.clear()
+        app._upstream_cooldowns.clear()
         app._lyrics_cache.clear()
         app._qq_detail_cache.clear()
 
@@ -101,10 +104,10 @@ class QjjlbResilienceTests(unittest.TestCase):
              patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)) as netease:
             results = app.search_qjjlb('test-default-source', limit=1)
 
-        self.assertEqual(results, [{'id': 'kuwo-1'}])
+        self.assertIn(results, [[{'id': 'kuwo-1'}], [{'id': 'netease-1'}]])
         qq.assert_called_once_with('test-default-source', 20)
         kuwo.assert_called_once_with('test-default-source', 20)
-        netease.assert_not_called()
+        netease.assert_called_once_with('test-default-source', 1, 20)
 
     def test_search_qjjlb_returns_generic_error_when_all_sources_fail(self):
         with patch.object(app, 'search_qjjlb_qq', return_value=(None, 'qjjlb 暂时不可用，请检查本机网络权限或代理设置后重试')), \
@@ -129,13 +132,13 @@ class QjjlbResilienceTests(unittest.TestCase):
 
         self.assertEqual(resp.status_code, 200)
         results = resp.get_json()['results']
-        self.assertEqual([song['id'] for song in results], ['kuwo-1', 'netease-1'])
+        self.assertCountEqual([song['id'] for song in results], ['kuwo-1', 'netease-1'])
         self.assertTrue(all(song['downloaded'] is False and song['favorited'] is False for song in results))
         qq.assert_called_once_with('test-api-search', 20)
         kuwo.assert_called_once_with('test-api-search', 20)
         netease.assert_called_once_with('test-api-search', 1, 20)
 
-    def test_api_search_returns_friendly_error_without_502_status(self):
+    def test_api_search_returns_friendly_error_with_502_status(self):
         client = app.app.test_client()
 
         with patch.object(
@@ -145,7 +148,7 @@ class QjjlbResilienceTests(unittest.TestCase):
         ):
             resp = client.get('/api/search', query_string={'q': 'blocked-search', 'source_limit': '20'})
 
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 502)
         self.assertEqual(
             resp.get_json(),
             {'error': 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试'},
@@ -1032,7 +1035,7 @@ class QjjlbResilienceTests(unittest.TestCase):
             'lyrics': [{'time': 0.0, 'text': '知我'}],
         }
 
-        def fake_get_song_info(url):
+        def fake_get_song_info(url, include_lyrics=True):
             if url == legacy_url:
                 return {'error': '该歌曲链接已不再支持，请重新搜索'}, '该歌曲链接已不再支持，请重新搜索'
             if url == 'qjjlb://netease?id=1394167216':
@@ -1080,7 +1083,7 @@ class QjjlbResilienceTests(unittest.TestCase):
             'lyrics': [],
         }
 
-        def fake_get_song_info(url):
+        def fake_get_song_info(url, include_lyrics=True):
             if url == direct_mp3:
                 return direct_info, None
             if url == 'qjjlb://netease?id=1394167216':

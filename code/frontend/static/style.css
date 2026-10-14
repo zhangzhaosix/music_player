@@ -111,15 +111,6 @@ kbd { color: var(--text-muted); font: 12px var(--font); padding: 1px 5px; border
 #searchStatus { min-width: 0; overflow-wrap: anywhere; }
 #searchResultCount { white-space: nowrap; }
 .search-mini-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
-.search-mini-item { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 58px; padding: 9px 7px; border-radius: 10px; text-align: left; background: transparent; transition: background 160ms ease; }
-.search-mini-item + .search-mini-item { margin-top: 3px; }
-.search-mini-item:hover, .search-mini-item.is-current { background: linear-gradient(100deg, #88c4ff25, #88c4ff08); }
-.mini-index { color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-.mini-info { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 3px; }
-.mini-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 550; }
-.mini-info > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 11px; }
-.search-mini-item.is-current strong { color: var(--blue); }
-.source-tag { flex-shrink: 0; font-size: 10px; color: var(--text-muted); }
 .player-top { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art song" "art progress" "art controls"; column-gap: 14px; row-gap: 6px; min-width: 0; }
 .album-art { grid-area: art; align-self: stretch; display: grid; place-items: center; width: 124px; height: auto; }
 .player-song-row { grid-area: song; display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
@@ -355,3 +346,9 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Search rows share library actions, with room for long names in the narrow panel. */
+.search-mini-list .song-item { padding: 8px 4px; gap: 6px; }
+.search-mini-list .song-info { min-width: 0; }
+.search-mini-list .song-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.search-retry { align-self: flex-start; margin: 8px 4px; }

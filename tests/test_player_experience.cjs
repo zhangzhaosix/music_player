@@ -84,6 +84,22 @@ test('switching immediately invalidates pending prefetch and releases the old me
     assert.deepEqual(events, ['src', 'load']);
 });
 
+test('matching warm media is kept until the selected song starts', async () => {
+    const c = playerFixture();
+    const events = [];
+    c.playbackState.nextAudioPreloader = {
+        songKey: 'b', removeAttribute: name => events.push(name), load: () => events.push('load'),
+    };
+    let resolve;
+    c.loadOnlineSongInfo = () => new Promise(done => { resolve = done; });
+    const playing = c.playSong('b', { keepQueue: true });
+    assert.deepEqual(events, []);
+    resolve({ song: { id: 'b' }, audioUrl: '/b.mp3' });
+    await playing;
+    assert.deepEqual(events, ['src', 'load']);
+    assert.equal(c.started.audioUrl, '/b.mp3');
+});
+
 test('failure stops misleading playing state and retry retains the listening position', async () => {
     const c = playerFixture();
     c.setPlaybackError('disconnected');
