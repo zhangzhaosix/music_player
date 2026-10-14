@@ -94,7 +94,8 @@ test('new-song lyrics start while audio is still buffering and old progress clea
     let finishAudio;
     let lyricsStarted = false;
     Object.assign(c, {
-        clearTimeout,
+        clearTimeout, window: { setTimeout() { return 0; } },
+        getPlayableInfoKey: song => song.id,
         resolvePlayableSong: id => ({ id, url: 'qjjlb://qq?mid=new' }),
         syncQueueForSong() {},
         audio: { pause() {}, removeAttribute() {}, load() {} },

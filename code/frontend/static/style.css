@@ -102,11 +102,8 @@ kbd { color: var(--text-muted); font: 12px var(--font); padding: 1px 5px; border
 .search-bar input::-webkit-search-cancel-button { cursor: pointer; }
 .search-bar button, .btn-primary { min-height: 34px; padding: 7px 14px; border-radius: var(--control-radius); color: var(--accent-ink); background: radial-gradient(ellipse at 30% 0%, #fff5, var(--accent)); box-shadow: 0 5px 16px #f5c84c40; font-weight: 650; white-space: nowrap; }
 .search-bar button { flex-shrink: 0; font-size: 12px; }
-.source-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.source-badges span { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); padding: 3px 7px; border-radius: 999px; color: var(--text-secondary); background: #0003; font-size: 11px; }
-.source-badges span::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--blue); }
-.source-badges .source-netease::before { background: #ff8998; }
-.source-badges .source-kuwo::before { background: var(--accent); }
+/* 保留原来源行的占位，移除标识后搜索结果与三栏布局不移动。 */
+.source-spacing { flex-shrink: 0; box-sizing: content-box; height: 1.5em; padding-block: 3px; border-block: 1px solid transparent; margin-top: 12px; font-size: 11px; }
 .search-summary { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin: 16px 0 8px; color: var(--text-muted); font-size: 11px; }
 #searchStatus { min-width: 0; overflow-wrap: anywhere; }
 #searchResultCount { white-space: nowrap; }
@@ -290,7 +287,7 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
     .lyrics-list { max-height: 400px; }
     .playlists-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .shortcut-hint { display: none; }
-    .panel-caption, .source-tag, .source-badges span, .search-summary, .song-artist { font-size: 12px; }
+    .panel-caption, .source-tag, .source-spacing, .search-summary, .song-artist { font-size: 12px; }
 }
 @media (max-width: 1240px) {
     .player-control-row .equalizer { display: none; }

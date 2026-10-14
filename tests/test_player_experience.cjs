@@ -15,18 +15,21 @@ function playerFixture() {
     const songs = ['a', 'b', 'c'].map(id => ({ id, title: id, url: `/${id}.mp3` }));
     const c = vm.createContext({
         AbortController, AbortSignal, clearTimeout,
+        window: { setTimeout() { return 0; } },
+        PLAYABLE_INFO_TTL_MS: 300000,
         state: { queue: songs, queueIndex: 0, currentSong: songs[0], isPlaying: true, isLoading: false, playMode: 'shuffle', playHistory: [] },
         playbackState: { playToken: 0, prefetchToken: 0, playableInfoCache: new Map() },
         audio: { paused: false, currentTime: 37, pause() { this.paused = true; }, removeAttribute() {}, load() {} },
         progressBar: {}, currentTime: {}, totalTime: {}, playBtn: {}, playerTitle: {}, playerArtist: {},
         ICON: { play: 'play' }, equalizer: { classList: { add() {} } },
-        Math: { floor: Math.floor, random: () => 0 },
+        Math: Object.assign(Object.create(Math), { random: () => 0 }),
         resolvePlayableSong: id => songs.find(song => song.id === id),
         syncQueueForSong() {}, clearSeekFeedback() {}, updateRangeFill() {},
         syncImmersivePlayerUI() {}, updatePlayButtons() {}, toast() {},
         hasRealLyrics: () => true, mergeSongInfo: (song, info) => ({ ...song, ...info }),
         loadOnlineSongInfo: async song => ({ song, audioUrl: song.url }),
         hydrateCurrentSongDetails() {}, prefetchNextSong() {}, getPlayableInfoKey: song => song.id,
+        getSongInfoReference: song => song.url, fetchOnlineSongInfo: async () => null,
     });
     c.startPlaybackWithLeveling = async options => { c.started = options; c.audio.paused = false; c.state.isPlaying = true; return true; };
     load(c, 'async function playSong(', 'function findSongInState');
@@ -35,6 +38,55 @@ function playerFixture() {
     return c;
 }
 const flush = () => new Promise(setImmediate);
+
+test('a preview retries a different source within the original startup deadline', async () => {
+    const c = playerFixture();
+    const deadlines = [];
+    c.getAudioUrl = url => url;
+    c.startPlaybackWithLeveling = async options => {
+        deadlines.push(options.deadline);
+        c.playbackState.incompleteSource = deadlines.length === 1;
+        return deadlines.length > 1;
+    };
+    c.fetchOnlineSongInfo = async (ref, song, options) => {
+        assert.equal(options.fallbackOnly, true);
+        assert.equal(song.id, 'b');
+        return { mp3_url: '/full.mp3', song_ref: 'qjjlb://qq?mid=full' };
+    };
+    await c.playSong('b', { keepQueue: true });
+    assert.equal(deadlines.length, 2);
+    assert.equal(deadlines[0], deadlines[1]);
+    assert.equal(c.state.playbackError, '');
+    assert.equal(c.state.currentSong.id, 'b');
+    assert.equal(c.playbackState.playableInfoCache.get('b').info.mp3_url, '/full.mp3');
+});
+
+test('startup timeout cancels lookup and a late result cannot start audio', async () => {
+    const c = playerFixture();
+    let expire, resolve;
+    c.window.setTimeout = (fn, ms) => { assert.equal(ms, 10000); expire = fn; return 0; };
+    c.loadOnlineSongInfo = () => new Promise(done => { resolve = done; });
+    const pending = c.playSong('b', { keepQueue: true });
+    expire();
+    assert.equal(c.playbackState.playController.signal.aborted, true);
+    resolve({ song: c.state.currentSong, audioUrl: '/late.mp3' });
+    await pending;
+    assert.match(c.state.playbackError, /10 秒/);
+    assert.equal(c.started, undefined);
+});
+
+test('remaining buffer timeout does not reset time already spent resolving', async () => {
+    const c = playerFixture();
+    c.Date = { now: () => 7000 };
+    let expire, duration;
+    c.window.setTimeout = (fn, ms) => { expire = fn; duration = ms; return 0; };
+    c.resumeAudioContext = () => new Promise(() => {});
+    load(c, 'async function startAudioPlayback(', 'async function analyzeTrackGain');
+    const pending = c.startAudioPlayback({ song: c.state.currentSong, shouldPlay: true, playToken: 0, deadline: 10000 });
+    assert.equal(duration, 3000);
+    expire();
+    assert.equal(await pending, false);
+});
 
 test('random next excludes the current song and previous returns the actual history', async () => {
     const c = playerFixture();
@@ -237,4 +289,34 @@ test('untimed lyrics do not simulate synchronized highlighting', () => {
     load(c, 'function syncLyricHighlight(', 'function syncImmersivePlayerUI(');
     c.syncLyricHighlight();
     assert.equal(c.state.currentLyricIndex, -1);
+});
+
+
+test('normal and instrumental recordings keep separate identities while normal types share one', () => {
+    const c = vm.createContext({ URL });
+    load(c, 'function qjjlbSongIdentityKeyFromUrl', 'function getSongIdentityKey');
+    assert.equal(c.qjjlbSongIdentityKeyFromUrl('qjjlb://qq?mid=one&song_type=1'), 'qjjlb:qq:one');
+    assert.equal(c.qjjlbSongIdentityKeyFromUrl('qjjlb://qq?mid=one&song_type=113'), 'qjjlb:qq:one:113');
+});
+
+
+test('a failed cached audio address refreshes the same recording before giving up', async () => {
+    const c = playerFixture();
+    const deadlines = [];
+    c.getAudioUrl = url => url;
+    c.startPlaybackWithLeveling = async options => {
+        deadlines.push(options.deadline);
+        return deadlines.length > 1;
+    };
+    c.fetchOnlineSongInfo = async (ref, song, options) => {
+        assert.equal(options.refresh, true);
+        assert.equal(options.fallbackOnly, false);
+        assert.equal(ref, '/b.mp3');
+        return { mp3_url: '/renewed.mp3' };
+    };
+    await c.playSong('b', { keepQueue: true });
+    assert.equal(deadlines.length, 2);
+    assert.equal(deadlines[0], deadlines[1]);
+    assert.equal(c.state.playbackError, '');
+    assert.equal(c.playbackState.playableInfoCache.get('b').info.mp3_url, '/renewed.mp3');
 });

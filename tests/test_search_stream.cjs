@@ -87,3 +87,21 @@ test('a real short song and missing duration are not inferred to be previews', (
     assert.equal(c.isIncompleteAudio({ expected_duration: 200 }, 30), true);
     assert.equal(c.isIncompleteAudio({ is_preview: true }, NaN), true);
 });
+
+
+test('a later search snapshot cannot reintroduce a recording already confirmed unplayable', async () => {
+    const c = vm.createContext({
+        AbortController, AbortSignal, TextDecoder, URLSearchParams, SEARCH_SOURCE_LIMIT: 20,
+        state: { unavailableSources: new Map([['failed', Date.now() + 10000]]), searchResults: [], listFilters: {} },
+        searchInput: { value: 'song' }, toast() {}, syncCachedSongFlags() {}, renderSearchResults() {},
+        setSearchLoading() {}, syncSearchPreview() {}, rankSearchResults: songs => songs,
+        getSongIdentityKey: song => song.song_ref,
+        fetch: async () => new Response(JSON.stringify({ results: [
+            { id: 'bad', song_ref: 'failed' }, { id: 'good', song_ref: 'available' },
+        ], done: true }), { headers: { 'content-type': 'application/json' } }),
+    });
+    load(c, 'async function readSearchStream(', 'function syncSearchPreview(');
+    await c.doSearch();
+    assert.equal(c.state.searchResults.length, 1);
+    assert.equal(c.state.searchResults[0].id, 'good');
+});

@@ -5,6 +5,7 @@ const state = {
     searchSourceErrors: {},
     lyricsEffect: 'neon',
     searchResults: [],
+    unavailableSources: new Map(),
     localMusic: [],
     favorites: [],
     playlists: [],
@@ -290,7 +291,8 @@ function syncImmersivePlayerUI() {
     $('playbackNotice').hidden = !state.playbackError && !state.isBuffering;
     $('playbackMessage').textContent = state.playbackError || '正在缓冲音频，请稍候…';
     $('retryPlaybackBtn').hidden = !state.playbackError;
-    $('downloadCurrentBtn').disabled = !song || !!song.downloaded;
+    $('downloadCurrentBtn').disabled = !song || !!song.downloaded || song.download_allowed === false;
+    $('downloadCurrentBtn').title = song?.download_allowed === false ? '此来源仅供在线播放' : '下载当前歌曲';
     playBtn.title = state.isLoading ? '正在连接音频' : (state.isPlaying ? '暂停' : (song ? '播放' : '选歌播放'));
     playBtn.setAttribute('aria-label', playBtn.title);
     playBtn.disabled = state.isLoading;
@@ -380,7 +382,8 @@ function qjjlbSongIdentityKeyFromUrl(url) {
             || ''
         ).trim();
         if (!provider || !songId) return '';
-        return `qjjlb:${provider}:${songId}`;
+        const songType = parsed.searchParams.get('song_type') || '0';
+        return `qjjlb:${provider}:${songId}` + (provider === 'qq' && !['0', '1'].includes(songType) ? `:${songType}` : '');
     } catch {
         return '';
     }
@@ -596,11 +599,40 @@ function normalizeSearchText(text) {
     return String(text || '').normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
+function hideUnavailableSong(song) {
+    if (!song) return;
+    const identity = getSongIdentityKey(song);
+    state.unavailableSources ||= new Map();
+    const key = identity || song.id;
+    if (state.unavailableSources.size >= 128 && !state.unavailableSources.has(key)) state.unavailableSources.delete(state.unavailableSources.keys().next().value);
+    state.unavailableSources.set(key, Date.now() + PLAYABLE_INFO_TTL_MS);
+    const lists = [state.searchResults, state.favorites, state.queue,
+        ...(state.playlists || []).map(playlist => playlist.songs || [])];
+    for (const list of lists) {
+        for (const item of list || []) {
+            if (!item || typeof item !== 'object' || item.filename) continue;
+            const itemIdentity = getSongIdentityKey(item);
+            if (identity && itemIdentity ? itemIdentity === identity : item.id === song.id) {
+                item.unavailable_until = Date.now() + PLAYABLE_INFO_TTL_MS;
+                playbackState.playableInfoCache.delete(getPlayableInfoKey(item));
+            }
+        }
+    }
+    state.searchResults = state.searchResults.filter(item => !(item.unavailable_until > Date.now()));
+    state.queue = state.queue.filter(item => !(item.unavailable_until > Date.now()));
+    state.queueIndex = state.queue.findIndex(item => item.id === state.currentSong?.id);
+    renderSearchResults();
+    if (state.currentTab === 'favorites') renderFavorites();
+    else if (state.currentTab === 'queue') renderQueue();
+    else if (state.currentTab === 'playlist-detail') renderPlaylistSongs(state.playlists.find(playlist => playlist.id === state.currentPlaylistDetailId));
+}
+
+
 function filterSongs(songs) {
     const query = normalizeSearchText(state.listFilters[getListFilterKey()] || '');
     const tokens = query.split(' ').filter(Boolean);
-    const filtered = songs.filter(song => tokens.every(token => normalizeSearchText(`${song.title} ${song.artist}`).includes(token)));
-    if (!$('listFilterBar').hidden) $('listFilterCount').textContent = query ? `${filtered.length} / ${songs.length} 首` : `${songs.length} 首`;
+    const filtered = songs.filter(song => !(song.unavailable_until > Date.now()) && tokens.every(token => normalizeSearchText(`${song.title} ${song.artist}`).includes(token)));
+    if (!$('listFilterBar').hidden) $('listFilterCount').textContent = query ? `${filtered.length} / ${songs.length} 首` : `${filtered.length} 首`;
     return filtered;
 }
 
@@ -866,7 +898,8 @@ async function doSearch(options = {}) {
         await readSearchStream(response, snapshot => {
             if (controller !== state.searchController || controller.signal.aborted) return;
             if (snapshot.error) throw new Error(snapshot.error);
-            state.searchResults = rankSearchResults((snapshot.results || []).filter(song => !song.is_preview), q);
+            state.searchResults = rankSearchResults((snapshot.results || []).filter(song => !song.is_preview
+                && !(state.unavailableSources?.get(getSongIdentityKey(song) || song.id) > Date.now())), q);
             state.searchSourceErrors = snapshot.source_errors || {};
             state.lastSearchKeyword = q;
             finished = Boolean(snapshot.done);
@@ -897,15 +930,15 @@ function syncSearchPreview() {
     results.setAttribute('aria-busy', String(state.isSearching));
     const partial = Object.keys(state.searchSourceErrors || {}).length > 0;
     status.textContent = state.isSearching
-        ? (state.searchResults.length ? '已找到歌曲，继续补充…' : '正在搜索…')
-        : state.searchError || (partial ? '部分来源未完成，已保留可用结果' : state.lastSearchKeyword ? `“${state.lastSearchKeyword}”的搜索结果` : '搜索一首喜欢的歌吧');
+        ? (state.searchResults.length ? '已找到可播歌曲，继续核验…' : '正在核验可播放音源…')
+        : state.searchError || (partial ? '音源暂时未完成，已保留可用结果' : state.lastSearchKeyword ? `“${state.lastSearchKeyword}”的搜索结果` : '搜索一首喜欢的歌吧');
     const focused = results.contains(document.activeElement) ? document.activeElement : null;
     const focusedId = focused?.closest('.song-item')?.dataset.songId;
     const focusedClass = focused?.className?.split(' ')[0];
     results.innerHTML = state.searchResults.length
         ? state.searchResults.map(song => buildSongItem(song, { hideSelectBtn: true, fromSearch: true })).join('')
         : state.isSearching ? '<div class="loading">正在寻找好声音…</div>'
-        : `<div class="empty-state"><p>${escapeHtml(state.searchError || (partial ? '暂时无法连接搜索来源' : state.lastSearchKeyword ? '没有找到相关歌曲' : '今天，想听什么？'))}</p><p class="hint">${state.lastSearchKeyword ? '试试其他歌名或歌手。' : '输入歌名或歌手，开始你的音乐时光。'}</p></div>`;
+        : `<div class="empty-state"><p>${escapeHtml(state.searchError || (partial ? '暂时无法连接搜索来源' : state.lastSearchKeyword ? '没有找到可播放的完整版' : '今天，想听什么？'))}</p><p class="hint">${state.lastSearchKeyword ? '试试其他歌名或歌手。' : '输入歌名或歌手，开始你的音乐时光。'}</p></div>`;
     if (!state.isSearching && (state.searchError || partial)) {
         results.insertAdjacentHTML('beforeend', '<button class="btn-secondary search-retry" onclick="doSearch()">重新搜索</button>');
     }
@@ -1059,6 +1092,10 @@ function renderDownloads() {
 
 // ─── 构建歌曲项 HTML ────────────────────────────────────
 
+function songDescription(song) {
+    return [song.artist || '未知歌手', song.album, song.version].filter(Boolean).join(' · ');
+}
+
 function buildSongItem(song, options = {}) {
     const isPlaying = state.currentSong && state.currentSong.id === song.id;
     const isSelected = state.selectedSongIds.has(song.id);
@@ -1076,7 +1113,7 @@ function buildSongItem(song, options = {}) {
             <button class="play-btn-item song-cover ${isPlaying ? 'playing' : ''}" onclick="${playAction}" title="${isPlaying && state.isPlaying ? '暂停' : '播放'}" aria-label="${isPlaying && state.isPlaying ? '暂停' : '播放'} ${escapeHtml(song.title)}">${playIcon}</button>
             <button class="song-info" onclick="${hideSelectBtn ? '' : `state.isBatchMode ? toggleSongSelection('${song.id}') : `}${playAction}" aria-label="${hideSelectBtn ? '播放或暂停' : '播放或选择'} ${escapeHtml(song.title)}">
                 <span class="song-title" title="${escapeHtml(song.title || '未知歌曲')}">${escapeHtml(song.title || '未知歌曲')}</span>
-                <span class="song-artist" title="${escapeHtml(song.artist || '未知歌手')}">${escapeHtml(song.artist || '未知歌手')}</span>
+                <span class="song-artist" title="${escapeHtml(songDescription(song))}">${escapeHtml(songDescription(song))}</span>
             </button>
             <div class="song-actions">
                 <button class="fav-btn ${favClass}" onclick="toggleFavorite('${song.id}')" title="${favorited ? '取消收藏' : '收藏'}" aria-label="${favorited ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}">${favIcon}</button>
@@ -1096,7 +1133,7 @@ function prepareSongActions(songId, playlistId, trigger) {
     menu.append(title);
     const actions = [
         { label: '加入歌单', icon: ICON.plus, run: () => showAddToPlaylist(songId) },
-        { label: song.downloaded ? '已保存到本地' : '下载到本地', icon: ICON.download, disabled: song.downloaded, run: () => downloadSong(songId) },
+        { label: song.downloaded ? '已保存到本地' : song.download_allowed === false ? '仅供在线播放' : '下载到本地', icon: ICON.download, disabled: song.downloaded || song.download_allowed === false, run: () => downloadSong(songId) },
     ];
     if (playlistId) actions.push({ label: '从歌单移除', icon: ICON.minus, run: () => removeSongFromPlaylist(playlistId, songId) });
     if (song.downloaded) actions.push({ label: '删除本地文件', icon: ICON.trash, danger: true, run: () => deleteLocalSong(songId) });
@@ -1309,7 +1346,7 @@ async function waitForAudioMetadata() {
     await waitForMediaEvent(audio, 'loadedmetadata');
 }
 
-async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playToken }) {
+async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playToken, deadline = Date.now() + 10000 }) {
     if (playToken !== playbackState.playToken) return false;
 
     if (seekTime > 0.5) {
@@ -1347,7 +1384,7 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playT
                 startupExpired = true;
                 if (playToken === playbackState.playToken) audio.pause();
                 reject(new Error('音频连接超时'));
-            }, 20000);
+            }, Math.max(1, deadline - Date.now()));
         })]);
         if (playToken !== playbackState.playToken) return false;
         state.isPlaying = true;
@@ -1381,6 +1418,7 @@ async function fetchAudioAnalysis(audioUrl, { start = false, priority = 'current
 
 async function analyzeTrackGain(song, audioUrl, requestToken, { priority = 'current', signal = null } = {}) {
     // Analysis only warms the server cache. Never alter the gain of an already-playing track.
+    if (song?.stream_only) return false;
     const deadline = Date.now() + 300000;
     let submitted = false;
     while (Date.now() < deadline && !signal?.aborted) {
@@ -1410,7 +1448,7 @@ async function resumeAudioContext() {
     if (pipeline?.context.state === 'suspended') await pipeline.context.resume();
 }
 
-async function startPlaybackWithLeveling({ song, audioUrl, shouldPlay = true, seekTime = 0, saveState = false }) {
+async function startPlaybackWithLeveling({ song, audioUrl, shouldPlay = true, seekTime = 0, saveState = false, deadline }) {
     const requestToken = ++playbackState.analysisToken;
     const playToken = playbackState.playToken;
     playbackState.analysisController?.abort();
@@ -1421,14 +1459,14 @@ async function startPlaybackWithLeveling({ song, audioUrl, shouldPlay = true, se
     if (playToken !== playbackState.playToken || controller.signal.aborted) return false;
     applyEffectiveVolume({ immediate: true, trackChanged: true });
     // A metadata lookup has a small fixed budget; a cold analysis never delays startup.
-    const measured = await fetchAudioAnalysis(audioUrl, { signal: controller.signal, timeout: 120 });
+    const measured = song.stream_only ? null : await fetchAudioAnalysis(audioUrl, { signal: controller.signal, timeout: 120 });
     if (playToken !== playbackState.playToken || controller.signal.aborted) return false;
     if (measured?.status === 'ready' && Number.isFinite(measured.gain_db)) {
         playbackState.trackGain = Math.pow(10, Math.min(6, measured.gain_db) / 20);
         applyEffectiveVolume({ immediate: true, trackChanged: true });
     }
     audio.src = audioUrl;
-    const started = await startAudioPlayback({ song, shouldPlay, seekTime, saveState, playToken });
+    const started = await startAudioPlayback({ song, shouldPlay, seekTime, saveState, playToken, deadline });
     if (started && shouldPlay && !['ready', 'silent'].includes(measured?.status)) {
         void analyzeTrackGain(song, audioUrl, requestToken, { signal: controller.signal });
     }
@@ -1440,6 +1478,7 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
     let song = resolvePlayableSong(songId);
     if (!keepQueue) syncQueueForSong(songId, { fromSearch });
     if (!song) return toast('找不到歌曲信息', true);
+    const originalCacheKey = getPlayableInfoKey(song);
 
     // 如果点击的是同一首歌，切换播放/暂停
     if (!force && state.currentSong && state.currentSong.id === songId) {
@@ -1468,57 +1507,90 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
     }
     const controller = new AbortController();
     playbackState.playController = controller;
-    clearSeekFeedback();
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
-    progressBar.value = 0;
-    currentTime.textContent = '00:00';
-    totalTime.textContent = '00:00';
-    updateRangeFill(progressBar);
-    state.currentSong = hasRealLyrics(song) ? song : {
-        ...song,
-        lyrics_status: 'loading',
-        lyrics_message: '正在加载真实歌词…',
-    };
-    state.isPlaying = false;
-    state.isLoading = true;
-    state.isBuffering = false;
-    state.playbackError = '';
-    state.resumeTime = seekTime;
-    playBtn.innerHTML = ICON.play;
-    syncImmersivePlayerUI();
+    playbackState.startupDeadline = Date.now() + 10000;
+    playbackState.incompleteSource = false;
+    const startupTimer = window.setTimeout(() => {
+        if (playToken !== playbackState.playToken) return;
+        controller.abort();
+        if (preloader) { preloader.removeAttribute('src'); preloader.load(); }
+        setPlaybackError('音频连接超过 10 秒，请重试或切换歌曲。');
+    }, 10000);
+    try {
+        clearSeekFeedback();
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+        progressBar.value = 0;
+        currentTime.textContent = '00:00';
+        totalTime.textContent = '00:00';
+        updateRangeFill(progressBar);
+        state.currentSong = hasRealLyrics(song) ? song : {
+            ...song,
+            lyrics_status: 'loading',
+            lyrics_message: '正在加载真实歌词…',
+        };
+        state.isPlaying = false;
+        state.isLoading = true;
+        state.isBuffering = false;
+        state.playbackError = '';
+        state.resumeTime = seekTime;
+        playBtn.innerHTML = ICON.play;
+        syncImmersivePlayerUI();
 
-    const hydrated = await loadOnlineSongInfo(song, { playbackOnly: true, signal: controller.signal, refresh: force });
-    const releasePreloader = () => { if (preloader) { preloader.removeAttribute('src'); preloader.load(); } };
-    if (playToken !== playbackState.playToken) { releasePreloader(); return; }
-    if (!hydrated || !hydrated.audioUrl) {
+        let hydrated = await loadOnlineSongInfo(song, { playbackOnly: true, signal: controller.signal, refresh: force, deadline: playbackState.startupDeadline });
+        const releasePreloader = () => { if (preloader) { preloader.removeAttribute('src'); preloader.load(); } };
+        if (playToken !== playbackState.playToken || controller.signal.aborted) { releasePreloader(); return; }
+        if (!hydrated || !hydrated.audioUrl) {
+            releasePreloader();
+            setPlaybackError('这首歌暂时无法播放，请重试或切换歌曲。');
+            return;
+        }
+        let started = false;
+        let fallbackInfo = null;
+        void hydrateCurrentSongDetails(mergeSongInfo(state.currentSong, hydrated.song), playToken);
+        for (let attempt = 0; attempt < 2; attempt++) {
+            song = hydrated.song || song;
+            state.currentSong = mergeSongInfo(state.currentSong, song);
+            playbackState.incompleteSource = false;
+            syncImmersivePlayerUI();
+            started = await startPlaybackWithLeveling({
+                song, audioUrl: hydrated.audioUrl, shouldPlay: true, seekTime, saveState: true, deadline: playbackState.startupDeadline,
+            });
+            if (playToken !== playbackState.playToken || controller.signal.aborted) { releasePreloader(); return; }
+            if (started && !playbackState.incompleteSource) break;
+            started = false;
+            playbackState.playableInfoCache.delete(getPlayableInfoKey(song));
+            playbackState.playableInfoCache.delete(originalCacheKey);
+            if (attempt || song.filename || Date.now() >= playbackState.startupDeadline) break;
+            const info = await fetchOnlineSongInfo(getSongInfoReference(song), song, {
+                playbackOnly: true, fallbackOnly: playbackState.incompleteSource, refresh: !playbackState.incompleteSource,
+                silent: true, signal: controller.signal, deadline: playbackState.startupDeadline,
+            });
+            if (playToken !== playbackState.playToken || controller.signal.aborted) { releasePreloader(); return; }
+            if (!info?.mp3_url) break;
+            fallbackInfo = info;
+            hydrated = { song: mergeSongInfo(song, info), audioUrl: getAudioUrl(info.mp3_url) };
+            playbackState.detailController?.abort();
+            void hydrateCurrentSongDetails(hydrated.song, playToken);
+            state.playbackError = '';
+            state.isLoading = true;
+        }
         releasePreloader();
-        setPlaybackError('这首歌暂时无法播放，请重试或切换歌曲。');
-        return;
-    }
-    song = hydrated.song || song;
-    state.currentSong = mergeSongInfo(state.currentSong, song);
-    const audioUrl = hydrated.audioUrl;
-    syncImmersivePlayerUI();
-    void hydrateCurrentSongDetails(state.currentSong, playToken);
-
-    const started = await startPlaybackWithLeveling({
-        song,
-        audioUrl,
-        shouldPlay: true,
-        seekTime,
-        saveState: true,
-    });
-    releasePreloader();
-    if (playToken !== playbackState.playToken) return;
-    state.isLoading = false;
-    syncImmersivePlayerUI();
-    if (!started) {
-        setPlaybackError('音频未能开始播放，请重试或切换歌曲。');
-        return;
-    }
-    void prefetchNextSong();
+        state.isLoading = false;
+        syncImmersivePlayerUI();
+        if (!started) {
+            if (playbackState.incompleteSource) hideUnavailableSong(resolvePlayableSong(songId) || state.currentSong);
+            setPlaybackError(playbackState.incompleteSource ? '当前音源是片段，未找到可确认的同版本完整版。' : '音频未能开始播放，请重试或切换歌曲。');
+            return;
+        }
+        if (fallbackInfo) {
+            if (playbackState.playableInfoCache.size >= 128) playbackState.playableInfoCache.delete(playbackState.playableInfoCache.keys().next().value);
+            playbackState.playableInfoCache.set(originalCacheKey, {
+                info: fallbackInfo, expiresAt: Date.now() + PLAYABLE_INFO_TTL_MS,
+            });
+        }
+        void prefetchNextSong();
+    } finally { clearTimeout(startupTimer); }
 }
 
 function findSongInState(songId) {
@@ -1659,20 +1731,26 @@ function getPlayableInfoKey(song) {
 }
 
 async function fetchOnlineSongInfo(songUrl, song = null, options = {}) {
-    const { playbackOnly = false, lyricsOnly = false, signal = null, silent = false, refresh = false } = options;
+    const { playbackOnly = false, lyricsOnly = false, signal = null, silent = false, refresh = false, fallbackOnly = false, deadline = null } = options;
     try {
         const params = new URLSearchParams({ url: songUrl });
         if (song && song.title) params.set('title', song.title);
         if (song && song.artist) params.set('artist', song.artist);
         if (song && getSongInfoReference(song)) params.set('song_ref', getSongInfoReference(song));
         if (playbackOnly) params.set('playback_only', '1');
+        if (playbackOnly && deadline) params.set('budget_ms', String(Math.max(1, deadline - Date.now())));
         if (refresh) params.set('refresh', '1');
         if (lyricsOnly) params.set('lyrics_only', '1');
-        const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(playbackOnly ? 15000 : 45000)]) : AbortSignal.timeout(playbackOnly ? 15000 : 45000);
+        if (fallbackOnly) params.set('fallback_only', '1');
+        if (song?.album) params.set('album', song.album);
+        if (song?.version) params.set('version', song.version);
+        const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(playbackOnly ? 10000 : 45000)]) : AbortSignal.timeout(playbackOnly ? 10000 : 45000);
         const resp = await fetch(`/api/song-info?${params.toString()}`, { signal: requestSignal });
         const data = await resp.json();
         if (data.error || !resp.ok) {
-            if (!silent) toast(data.error || '音频服务暂时不可用，请重试', true);
+            const unavailable = playbackOnly && data.error_code === 'source_unavailable' && !signal?.aborted;
+            if (unavailable) hideUnavailableSong(song);
+            if (!silent) toast(unavailable ? '该版本暂无可播完整版，已从列表隐藏' : data.error || '音频服务暂时不可用，请重试', true);
             return null;
         }
         return data;
@@ -1693,6 +1771,10 @@ function mergeSongInfo(song, info) {
         lyric_id: info.lyric_id || song.lyric_id,
         mp3_url: info.mp3_url || song.mp3_url,
         quality_label: info.quality_label || song.quality_label,
+        album: info.album || song.album,
+        version: info.version || song.version,
+        stream_only: info.mp3_url ? Boolean(info.stream_only) : song.stream_only,
+        download_allowed: info.mp3_url ? info.download_allowed !== false : song.download_allowed,
         expected_duration: info.expected_duration ?? song.expected_duration,
         actual_duration: info.actual_duration ?? song.actual_duration,
         is_preview: info.is_preview ?? song.is_preview,
@@ -1713,8 +1795,8 @@ function mergeSongInfo(song, info) {
 }
 
 async function loadOnlineSongInfo(song, options = {}) {
-    const { playbackOnly = true, silent = false, signal = null, refresh = false } = options;
-    if (!song || song.is_preview) {
+    const { playbackOnly = true, silent = false, signal = null, refresh = false, deadline = null } = options;
+    if (!song) {
         return { song, audioUrl: '' };
     }
 
@@ -1745,7 +1827,7 @@ async function loadOnlineSongInfo(song, options = {}) {
 
     let requestPromise = playbackState.playableInfoRequests.get(cacheKey);
     if (!requestPromise) {
-        requestPromise = fetchOnlineSongInfo(songUrl, song, { playbackOnly, silent, signal, refresh });
+        requestPromise = fetchOnlineSongInfo(songUrl, song, { playbackOnly, silent, signal, refresh, deadline });
         if (!signal) {
             requestPromise = requestPromise.finally(() => playbackState.playableInfoRequests.delete(cacheKey));
             playbackState.playableInfoRequests.set(cacheKey, requestPromise);
@@ -1822,11 +1904,11 @@ async function prefetchNextSong() {
     if (!prefetched?.audioUrl || prefetched.audioUrl === audio.currentSrc
         || prefetchToken !== playbackState.prefetchToken) return;
 
+    if (prefetched.song) Object.assign(nextSong, prefetched.song);
     const previousPreloader = playbackState.nextAudioPreloader;
     const nextPreloader = new Audio();
     nextPreloader.addEventListener('loadedmetadata', () => {
         if (!isIncompleteAudio(nextSong, nextPreloader.duration)) return;
-        nextSong.is_preview = true;
         playbackState.playableInfoCache.delete(getPlayableInfoKey(nextSong));
         state.searchResults = state.searchResults.filter(song => getPlayableInfoKey(song) !== getPlayableInfoKey(nextSong));
         renderSearchResults();
@@ -1927,7 +2009,11 @@ audio.addEventListener('pause', () => {
     syncImmersivePlayerUI();
 });
 audio.addEventListener('error', () => {
-    if (audio.error && state.currentSong) setPlaybackError('音频连接中断或暂时不可用，请重试。');
+    if (audio.error && state.currentSong) {
+        playbackState.playableInfoCache.delete(getPlayableInfoKey(state.currentSong));
+        playbackState.playableInfoCache.delete(getPlayableInfoKey(resolvePlayableSong(state.currentSong.id)));
+        if (!state.isLoading) setPlaybackError('音频连接中断或暂时不可用，请重试。');
+    }
 });
 
 playBtn.addEventListener('click', togglePlayPause);
@@ -2019,9 +2105,11 @@ audio.addEventListener('loadedmetadata', () => {
     if (isIncompleteAudio(state.currentSong, audio.duration)) {
         const key = getPlayableInfoKey(state.currentSong);
         playbackState.playableInfoCache.delete(key);
+        playbackState.playableInfoCache.delete(getPlayableInfoKey(resolvePlayableSong(state.currentSong.id)));
         state.searchResults = state.searchResults.filter(song => getPlayableInfoKey(song) !== key);
+        playbackState.incompleteSource = true;
         audio.pause();
-        setPlaybackError('此音源明显短于整曲，请选择其他版本。');
+        if (!state.isLoading) setPlaybackError('此音源明显短于整曲，请重试以恢复同版本音源。');
         renderSearchResults();
     }
 });
@@ -2180,6 +2268,10 @@ async function downloadSong(songId, options = {}) {
         if (!quiet) toast('找不到歌曲', true);
         return 'missing';
     }
+    if (song.download_allowed === false) {
+        if (!quiet) toast('此来源仅供在线播放，不能下载到本地', true);
+        return 'skipped';
+    }
     if (song.downloaded) {
         if (!quiet) toast('已下载过了');
         return 'skipped';
@@ -2260,6 +2352,8 @@ async function toggleFavorite(songId) {
                     id: songId,
                     title: song.title,
                     artist: song.artist,
+                    album: song.album || '',
+                    version: song.version || '',
                     url: song.url,
                     source_url: song.source_url || song.url || '',
                     mp3_url: song.mp3_url || '',
@@ -2288,6 +2382,8 @@ async function toggleFavorite(songId) {
                     id: song.id,
                     title: song.title,
                     artist: song.artist,
+                    album: song.album || '',
+                    version: song.version || '',
                     url: song.url || '',
                     source_url: song.source_url || song.url || '',
                     mp3_url: song.mp3_url || '',
@@ -2728,6 +2824,7 @@ function savePlaybackState() {
         localStorage.setItem('music_playback', JSON.stringify({
             currentSong: {
                 id: s.id, title: s.title, artist: s.artist,
+                album: s.album, version: s.version,
                 url: s.url, source_url: s.source_url, song_ref: s.song_ref,
                 type: s.type, songid: s.songid,
                 filename: s.filename, downloaded: s.downloaded,
@@ -2736,6 +2833,7 @@ function savePlaybackState() {
             wasPlaying: state.isPlaying,
             queue: state.queue.map(q => ({
                 id: q.id, title: q.title, artist: q.artist,
+                album: q.album, version: q.version,
                 url: q.url, source_url: q.source_url, song_ref: q.song_ref,
                 type: q.type, songid: q.songid,
                 filename: q.filename, downloaded: q.downloaded,

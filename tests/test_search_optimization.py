@@ -17,35 +17,29 @@ class SearchOptimizationTests(unittest.TestCase):
                       app._qq_detail_cache, app._upstream_cooldowns):
             cache.clear()
 
-    def test_fast_source_is_visible_before_slow_source(self):
-        def slow(*args):
-            time.sleep(.12)
-            return [{'id': 'slow'}], None
-        with patch.object(app, 'search_qjjlb_qq', side_effect=slow), \
-             patch.object(app, 'search_qjjlb_kuwo', return_value=([{'id': 'fast'}], None)):
-            started = time.monotonic()
-            snapshots = app.search_snapshots('progressive', source_names=['qq', 'kuwo'])
-            first = next(snapshots)
-            self.assertLess(time.monotonic() - started, .1)
-            self.assertFalse(first['done'])
-            self.assertEqual(first['results'], [{'id': 'fast'}])
-            final = list(snapshots)[-1]
-            self.assertTrue(final['done'])
-            self.assertCountEqual([s['id'] for s in final['results']], ['fast', 'slow'])
+    def test_search_never_dispatches_retired_sources(self):
+        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'one'}], None)) as qq, \
+             patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
+             patch.object(app, 'search_qjjlb_netease') as netease:
+            final = list(app.search_snapshots('single', source_names=['qq', 'kuwo', 'netease']))[-1]
+        self.assertTrue(final['done'])
+        self.assertEqual(final['results'], [{'id': 'one'}])
+        self.assertEqual(qq.call_count, 1)
+        kuwo.assert_not_called()
+        netease.assert_not_called()
 
-    def test_source_deadline_retains_success_and_late_work_is_bounded(self):
+    def test_source_deadline_reports_failure_without_other_source_requests(self):
         def slow(*args):
             time.sleep(.15)
             return [], None
         with patch.object(app, 'SEARCH_BUDGET', .05), \
-             patch.object(app, 'search_qjjlb_qq', side_effect=slow), \
-             patch.object(app, 'search_qjjlb_kuwo', return_value=([{'id': 'fast'}], None)):
+             patch.object(app, 'search_qjjlb_qq', side_effect=slow):
             started = time.monotonic()
-            final = list(app.search_snapshots('deadline', source_names=['qq', 'kuwo']))[-1]
+            final = list(app.search_snapshots('deadline'))[-1]
             self.assertLess(time.monotonic() - started, .12)
-            self.assertEqual(final['results'], [{'id': 'fast'}])
+            self.assertEqual(final['results'], [])
             self.assertIn('qq', final['source_errors'])
-            time.sleep(.16)  # Join the known short fake work before removing the patches.
+            time.sleep(.16)
 
     def test_two_searches_coalesce_and_then_hit_cache(self):
         entered = threading.Event()
@@ -183,17 +177,19 @@ class SearchOptimizationTests(unittest.TestCase):
             self.assertEqual(response.status_code, 502)
             self.assertEqual(response.get_json()['error'], '来源暂时不可用')
 
-    def test_stream_endpoint_exposes_partial_failures_and_finishes(self):
+    def test_stream_endpoint_returns_only_luoyue_and_finishes(self):
         with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'good'}], None)), \
-             patch.object(app, 'search_qjjlb_kuwo', return_value=(None, 'unavailable')), \
-             patch.object(app, 'search_qjjlb_netease', return_value=([], None)), \
+             patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
+             patch.object(app, 'search_qjjlb_netease') as netease, \
              patch.object(app, 'decorate_search_results', side_effect=lambda songs: songs):
             response = app.app.test_client().get('/api/search?q=stream-test&stream=1')
             import json
             snapshots = [json.loads(line) for line in response.data.splitlines()]
             self.assertTrue(snapshots[-1]['done'])
             self.assertEqual(snapshots[-1]['results'], [{'id': 'good'}])
-            self.assertIn('kuwo', snapshots[-1]['source_errors'])
+            self.assertEqual(snapshots[-1]['source_errors'], {})
+            kuwo.assert_not_called()
+            netease.assert_not_called()
 
 
 if __name__ == '__main__':
