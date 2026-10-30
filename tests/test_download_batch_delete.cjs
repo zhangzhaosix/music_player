@@ -208,6 +208,8 @@ test('deleting the playing local file releases audio first and rejects HTTP erro
     const c = fixture(), events = [];
     c.state.currentSong = { id: 'a', filename: 'a.mp3' };
     c.playbackState = { playToken: 0 };
+    c.clearTimeout = clearTimeout;
+    load(c, 'function cancelAutomaticPlayback(', 'function scheduleAutomaticPlaybackRetry(');
     c.audio = { pause: () => events.push('pause'), removeAttribute() {}, load: () => events.push('release') };
     c.playBtn = {}; c.ICON = { play: 'play' }; c.equalizer = { classList: { add() {} } };
     c.updatePlayButtons = () => {}; c.syncImmersivePlayerUI = () => {};

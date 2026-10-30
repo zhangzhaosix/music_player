@@ -32,12 +32,131 @@ function playerFixture() {
         getSongInfoReference: song => song.url, fetchOnlineSongInfo: async () => null,
     });
     c.startPlaybackWithLeveling = async options => { c.started = options; c.audio.paused = false; c.state.isPlaying = true; return true; };
-    load(c, 'async function playSong(', 'function findSongInState');
+    load(c, 'function cancelAutomaticPlayback(', 'function findSongInState');
     load(c, 'function stepQueue(', "prevBtn.addEventListener('click'");
     load(c, 'function setPlaybackError(', "$('retryPlaybackBtn').addEventListener");
     return c;
 }
 const flush = () => new Promise(setImmediate);
+
+function automaticFixture() {
+    const c = playerFixture();
+    c.state.playMode = 'sequence';
+    const timers = new Map();
+    let timerId = 0;
+    c.window.setTimeout = (fn, ms) => { timers.set(++timerId, { fn, ms }); return timerId; };
+    c.clearTimeout = id => timers.delete(id);
+    c.attempts = [];
+    c.loadOnlineSongInfo = async (song, options) => {
+        c.attempts.push({ id: song.id, refresh: options.refresh });
+        return song.id === 'b' ? null : { song, audioUrl: song.url };
+    };
+    c.runRetry = async () => {
+        const pending = [...timers].filter(([, timer]) => timer.ms === 5000);
+        assert.equal(pending.length, 1, 'exactly one retry must be scheduled after 5 seconds');
+        timers.delete(pending[0][0]);
+        pending[0][1].fn();
+        await flush();
+    };
+    c.retryTimers = () => [...timers.values()].filter(timer => timer.ms === 5000);
+    return c;
+}
+
+test('ended starts automatic recovery; three fresh retries precede skipping the song', async () => {
+    const c = automaticFixture();
+    c.audio.addEventListener = (name, handler) => { c.onEnded = handler; };
+    load(c, "audio.addEventListener('ended'", '// 上一首/下一首');
+    c.onEnded();
+    await flush();
+    assert.match(c.state.playbackError, /5 秒.*1\/3/);
+    for (let i = 0; i < 3; i++) await c.runRetry();
+    assert.deepEqual(c.attempts.map(item => item.id), ['b', 'b', 'b', 'b', 'c']);
+    assert.deepEqual(c.attempts.slice(1, 4).map(item => item.refresh), [true, true, true]);
+    assert.equal(c.state.currentSong.id, 'c');
+    assert.equal(c.playbackState.autoAdvance, null);
+    assert.equal(c.retryTimers().length, 0);
+});
+
+test('a recovered automatic start cancels recovery; later interruptions stay manual', async () => {
+    const c = automaticFixture();
+    await c.playSong('b', { keepQueue: true, automatic: true });
+    c.loadOnlineSongInfo = async song => ({ song, audioUrl: song.url });
+    await c.runRetry();
+    assert.equal(c.state.currentSong.id, 'b');
+    assert.equal(c.playbackState.autoAdvance, null);
+    c.setPlaybackError('later interruption');
+    assert.equal(c.state.playbackError, 'later interruption');
+    assert.equal(c.retryTimers().length, 0);
+});
+
+test('manual song selection and manual queue navigation never schedule automatic retries', async () => {
+    for (const action of [c => c.playSong('b'), c => c.stepQueue(1)]) {
+        const c = automaticFixture();
+        await action(c);
+        await flush();
+        assert.equal(c.retryTimers().length, 0);
+        assert.equal(c.playbackState.autoAdvance, null);
+        assert.match(c.state.playbackError, /请重试/);
+    }
+});
+
+test('manual switching cancels a retry and even an already queued callback cannot restart the old song', async () => {
+    const c = automaticFixture();
+    await c.playSong('b', { keepQueue: true, automatic: true });
+    const staleCallback = c.retryTimers()[0].fn;
+    await c.playSong('c');
+    staleCallback();
+    await flush();
+    assert.equal(c.state.currentSong.id, 'c');
+    assert.deepEqual(c.attempts.map(item => item.id), ['b', 'c']);
+    assert.equal(c.retryTimers().length, 0);
+});
+
+test('the pause control cancels a pending automatic retry without restarting playback', async () => {
+    const c = automaticFixture();
+    c.savePlaybackState = () => {};
+    load(c, 'function togglePlayPause(', 'function setPlaybackError(');
+    await c.playSong('b', { keepQueue: true, automatic: true });
+    c.togglePlayPause();
+    assert.equal(c.playbackState.autoAdvance, null);
+    assert.equal(c.retryTimers().length, 0);
+    assert.equal(c.audio.paused, true);
+    assert.match(c.state.playbackError, /已取消自动重试/);
+    c.togglePlayPause();
+    await flush();
+    assert.equal(c.attempts.length, 2);
+    assert.equal(c.retryTimers().length, 0);
+});
+
+test('consecutive failures stop after one pass through the queue, in sequence, shuffle and repeat modes', async () => {
+    for (const mode of ['sequence', 'shuffle', 'repeat']) {
+        const c = automaticFixture();
+        c.state.playMode = mode;
+        c.loadOnlineSongInfo = async song => { c.attempts.push(song.id); return null; };
+        await c.playSong('b', { keepQueue: true, automatic: true });
+        for (let i = 0; i < 9; i++) await c.runRetry();
+        for (const id of ['a', 'b', 'c']) assert.equal(c.attempts.filter(item => item === id).length, 4);
+        assert.equal(c.retryTimers().length, 0);
+        assert.equal(c.playbackState.autoAdvance, null);
+        assert.match(c.state.playbackError, /队列中的歌曲/);
+    }
+});
+
+test('a song removed as unavailable can still retry, then skip to its original successor', async () => {
+    const c = automaticFixture();
+    c.state.queueIndex = 1;
+    c.loadOnlineSongInfo = async song => {
+        c.attempts.push(song.id);
+        if (song.id !== 'b') return { song, audioUrl: song.url };
+        c.state.queue = c.state.queue.filter(item => item.id !== 'b');
+        c.state.queueIndex = -1;
+        return null;
+    };
+    c.resolvePlayableSong = id => c.state.queue.find(song => song.id === id);
+    await c.playSong('b', { keepQueue: true, automatic: true });
+    for (let i = 0; i < 3; i++) await c.runRetry();
+    assert.deepEqual(c.attempts, ['b', 'b', 'b', 'b', 'c']);
+});
 
 test('a preview retries a different source within the original startup deadline', async () => {
     const c = playerFixture();

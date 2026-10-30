@@ -93,6 +93,7 @@ const playbackState = {
     prefetchToken: 0,
     seekFeedbackTimer: null,
     bufferingTimer: null,
+    autoAdvance: null,
 };
 const LEVELING_TIMEOUT_MS = 2500;
 const LEVELING_FALLBACK_GAIN = Math.pow(10, -2 / 20);
@@ -283,17 +284,18 @@ function syncLyricHighlight(forceScroll = false) {
 
 function syncImmersivePlayerUI() {
     const song = state.currentSong;
+    const waitingToRetry = playbackState.autoAdvance?.timer != null;
     const title = song ? (song.title || '未知歌曲') : '暂未选择歌曲';
     const artist = song ? (song.artist || '未知歌手') : '搜索并播放一首歌吧';
 
     document.body.classList.toggle('is-playing', state.isPlaying);
-    if (vinylState) vinylState.textContent = state.playbackError ? '播放遇到问题' : state.isLoading ? '正在连接…' : state.isBuffering ? '正在缓冲…' : (state.isPlaying ? '正在播放' : (state.currentSong ? '已暂停' : '等待播放'));
+    if (vinylState) vinylState.textContent = waitingToRetry ? '等待自动重试' : state.playbackError ? '播放遇到问题' : state.isLoading ? '正在连接…' : state.isBuffering ? '正在缓冲…' : (state.isPlaying ? '正在播放' : (state.currentSong ? '已暂停' : '等待播放'));
     $('playbackNotice').hidden = !state.playbackError && !state.isBuffering;
     $('playbackMessage').textContent = state.playbackError || '正在缓冲音频，请稍候…';
     $('retryPlaybackBtn').hidden = !state.playbackError;
     $('downloadCurrentBtn').disabled = !song || !!song.downloaded || song.download_allowed === false;
     $('downloadCurrentBtn').title = song?.download_allowed === false ? '此来源仅供在线播放' : '下载当前歌曲';
-    playBtn.title = state.isLoading ? '正在连接音频' : (state.isPlaying ? '暂停' : (song ? '播放' : '选歌播放'));
+    playBtn.title = waitingToRetry ? '取消自动重试' : state.isLoading ? '正在连接音频' : (state.isPlaying ? '暂停' : (song ? '播放' : '选歌播放'));
     playBtn.setAttribute('aria-label', playBtn.title);
     playBtn.disabled = state.isLoading;
     playBtn.setAttribute('aria-busy', String(state.isLoading));
@@ -1173,6 +1175,7 @@ function releaseAudioIfDeletingFile(filename) {
 
     if (currentFilename !== filename) return;
 
+    cancelAutomaticPlayback();
     playbackState.playToken += 1;
     playbackState.analysisToken += 1;
     playbackState.analysisController?.abort();
@@ -1473,9 +1476,47 @@ async function startPlaybackWithLeveling({ song, audioUrl, shouldPlay = true, se
     return started;
 }
 
-async function playSong(songId, { keepQueue = false, force = false, seekTime = 0, rememberHistory = true, fromSearch = false } = {}) {
+function cancelAutomaticPlayback() {
+    clearTimeout(playbackState.autoAdvance?.timer);
+    playbackState.autoAdvance = null;
+}
+
+function scheduleAutomaticPlaybackRetry() {
+    const recovery = playbackState.autoAdvance;
+    if (!recovery || recovery.songId !== state.currentSong?.id) return;
+    if (recovery.timer == null && recovery.retries >= 3) {
+        recovery.failedIds.add(recovery.songId);
+        if (!state.queue.some(song => !recovery.failedIds.has(song.id))) {
+            cancelAutomaticPlayback();
+            state.playbackError = '队列中的歌曲暂时都无法播放，请稍后重试。';
+            syncImmersivePlayerUI();
+            return;
+        }
+        if (state.queueIndex < 0 && state.playMode !== 'shuffle') {
+            state.queueIndex = state.queue.findIndex(song => song.id === recovery.nextSongId) - 1;
+        }
+        toast('重试 3 次仍无法播放，已跳过这首歌');
+        stepQueue(1, { automatic: true });
+        return;
+    }
+    if (recovery.timer == null) {
+        recovery.retries += 1;
+        const playToken = playbackState.playToken;
+        recovery.timer = window.setTimeout(() => {
+            recovery.timer = null;
+            if (playbackState.autoAdvance !== recovery || playToken !== playbackState.playToken) return;
+            void playSong(recovery.songId, { keepQueue: true, force: true, rememberHistory: false, automatic: true });
+        }, 5000);
+    }
+    state.playbackError = `自动切歌失败，5 秒后重试（${recovery.retries}/3）。`;
+    playBtn.innerHTML = ICON.pause;
+    syncImmersivePlayerUI();
+}
+
+async function playSong(songId, { keepQueue = false, force = false, seekTime = 0, rememberHistory = true, fromSearch = false, automatic = false } = {}) {
+    if (!automatic) cancelAutomaticPlayback();
     // 在当前所有歌曲列表中找这个歌曲
-    let song = resolvePlayableSong(songId);
+    let song = resolvePlayableSong(songId) || (automatic && state.currentSong?.id === songId ? state.currentSong : null);
     if (!keepQueue) syncQueueForSong(songId, { fromSearch });
     if (!song) return toast('找不到歌曲信息', true);
     const originalCacheKey = getPlayableInfoKey(song);
@@ -1487,6 +1528,13 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
         return;
     }
 
+    if (automatic && playbackState.autoAdvance?.songId !== songId) {
+        playbackState.autoAdvance = {
+            songId, retries: 0, timer: null,
+            failedIds: playbackState.autoAdvance?.failedIds || new Set(),
+            nextSongId: state.queue[(state.queueIndex + 1) % state.queue.length]?.id,
+        };
+    }
     if (rememberHistory && state.currentSong && state.currentSong.id !== songId
         && state.queue.some(item => item.id === state.currentSong.id)) {
         state.playHistory.push(state.currentSong.id);
@@ -1537,7 +1585,7 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
         playBtn.innerHTML = ICON.play;
         syncImmersivePlayerUI();
 
-        let hydrated = await loadOnlineSongInfo(song, { playbackOnly: true, signal: controller.signal, refresh: force, deadline: playbackState.startupDeadline });
+        let hydrated = await loadOnlineSongInfo(song, { playbackOnly: true, silent: automatic, signal: controller.signal, refresh: force, deadline: playbackState.startupDeadline });
         const releasePreloader = () => { if (preloader) { preloader.removeAttribute('src'); preloader.load(); } };
         if (playToken !== playbackState.playToken || controller.signal.aborted) { releasePreloader(); return; }
         if (!hydrated || !hydrated.audioUrl) {
@@ -1583,6 +1631,7 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
             setPlaybackError(playbackState.incompleteSource ? '当前音源是片段，未找到可确认的同版本完整版。' : '音频未能开始播放，请重试或切换歌曲。');
             return;
         }
+        cancelAutomaticPlayback();
         if (fallbackInfo) {
             if (playbackState.playableInfoCache.size >= 128) playbackState.playableInfoCache.delete(playbackState.playableInfoCache.keys().next().value);
             playbackState.playableInfoCache.set(originalCacheKey, {
@@ -1931,6 +1980,14 @@ async function prefetchNextSong() {
 
 
 function togglePlayPause() {
+    if (playbackState.autoAdvance?.timer != null) {
+        cancelAutomaticPlayback();
+        state.playbackError = '已取消自动重试，可手动重试播放。';
+        playBtn.innerHTML = ICON.play;
+        syncImmersivePlayerUI();
+        savePlaybackState();
+        return;
+    }
     if (state.isLoading) return;
     if (state.playbackError) { retryCurrentPlayback(); return; }
     if (!state.currentSong && !audio.src) {
@@ -1971,6 +2028,7 @@ function setPlaybackError(message) {
     equalizer.classList.add('paused');
     updatePlayButtons();
     syncImmersivePlayerUI();
+    scheduleAutomaticPlaybackRetry();
 }
 
 function retryCurrentPlayback() {
@@ -2038,12 +2096,12 @@ audio.addEventListener('ended', () => {
     // 根据播放模式处理
     if (state.playMode === 'repeat') {
         // Start a new playback so a completed cold analysis takes effect on the next loop.
-        void playSong(state.currentSong.id, { keepQueue: true, force: true, seekTime: 0, rememberHistory: false });
-    } else stepQueue(1);
+        void playSong(state.currentSong.id, { keepQueue: true, force: true, seekTime: 0, rememberHistory: false, automatic: true });
+    } else stepQueue(1, { automatic: true });
 });
 
 // 上一首/下一首
-function stepQueue(direction) {
+function stepQueue(direction, { automatic = false } = {}) {
     const count = state.queue.length;
     if (!count) return;
     if (state.playMode === 'shuffle') {
@@ -2053,14 +2111,18 @@ function stepQueue(direction) {
             if (index < 0) return toast('还没有上一首播放记录');
             state.queueIndex = index;
         } else {
-            const candidates = state.queue.map((song, index) => index).filter(index => state.queue[index].id !== state.currentSong?.id);
+            const candidates = state.queue.map((song, index) => index).filter(index => state.queue[index].id !== state.currentSong?.id
+                && !(automatic && playbackState.autoAdvance?.failedIds.has(state.queue[index].id)));
             state.queueIndex = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : 0;
         }
     } else {
         state.queueIndex = (state.queueIndex + direction + count) % count;
+        while (automatic && playbackState.autoAdvance?.failedIds.has(state.queue[state.queueIndex].id)) {
+            state.queueIndex = (state.queueIndex + direction + count) % count;
+        }
     }
     const song = state.queue[state.queueIndex];
-    void playSong(song.id, { keepQueue: true, force: song.id === state.currentSong?.id, rememberHistory: direction > 0 });
+    void playSong(song.id, { keepQueue: true, force: song.id === state.currentSong?.id, rememberHistory: direction > 0, automatic });
 }
 prevBtn.addEventListener('click', () => stepQueue(-1));
 nextBtn.addEventListener('click', () => stepQueue(1));

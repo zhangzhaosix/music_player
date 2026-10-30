@@ -106,7 +106,7 @@ test('new-song lyrics start while audio is still buffering and old progress clea
         startPlaybackWithLeveling: () => new Promise(r => { finishAudio = r; }),
         prefetchNextSong() {},
     });
-    vm.runInContext(source.slice(source.indexOf('async function playSong('), source.indexOf('function findSongInState')), c);
+    vm.runInContext(source.slice(source.indexOf('function cancelAutomaticPlayback('), source.indexOf('function findSongInState')), c);
     const pending = c.playSong('new');
     assert.equal(c.progressBar.value, 0);
     assert.equal(c.currentTime.textContent, '00:00');
