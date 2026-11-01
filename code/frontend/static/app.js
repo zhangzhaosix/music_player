@@ -1508,13 +1508,12 @@ function scheduleAutomaticPlaybackRetry() {
             void playSong(recovery.songId, { keepQueue: true, force: true, rememberHistory: false, automatic: true });
         }, 5000);
     }
-    state.playbackError = `自动切歌失败，5 秒后重试（${recovery.retries}/3）。`;
+    state.playbackError = `播放失败，5 秒后重试（${recovery.retries}/3）。`;
     playBtn.innerHTML = ICON.pause;
     syncImmersivePlayerUI();
 }
 
 async function playSong(songId, { keepQueue = false, force = false, seekTime = 0, rememberHistory = true, fromSearch = false, automatic = false } = {}) {
-    if (!automatic) cancelAutomaticPlayback();
     // 在当前所有歌曲列表中找这个歌曲
     let song = resolvePlayableSong(songId) || (automatic && state.currentSong?.id === songId ? state.currentSong : null);
     if (!keepQueue) syncQueueForSong(songId, { fromSearch });
@@ -1528,7 +1527,8 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
         return;
     }
 
-    if (automatic && playbackState.autoAdvance?.songId !== songId) {
+    if (!automatic) cancelAutomaticPlayback();
+    if (playbackState.autoAdvance?.songId !== songId) {
         playbackState.autoAdvance = {
             songId, retries: 0, timer: null,
             failedIds: playbackState.autoAdvance?.failedIds || new Set(),

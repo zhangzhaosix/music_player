@@ -89,15 +89,32 @@ test('a recovered automatic start cancels recovery; later interruptions stay man
     assert.equal(c.retryTimers().length, 0);
 });
 
-test('manual song selection and manual queue navigation never schedule automatic retries', async () => {
+test('manual song selection and manual queue navigation retry failed starts three times, then skip', async () => {
     for (const action of [c => c.playSong('b'), c => c.stepQueue(1)]) {
         const c = automaticFixture();
         await action(c);
         await flush();
-        assert.equal(c.retryTimers().length, 0);
+        assert.equal(c.retryTimers().length, 1);
+        assert.match(c.state.playbackError, /播放失败.*5 秒.*1\/3/);
+        for (let i = 0; i < 3; i++) await c.runRetry();
+        assert.deepEqual(c.attempts.map(item => item.id), ['b', 'b', 'b', 'b', 'c']);
+        assert.equal(c.state.currentSong.id, 'c');
         assert.equal(c.playbackState.autoAdvance, null);
-        assert.match(c.state.playbackError, /请重试/);
     }
+});
+
+test('clicking a song again while it is loading does not disable failure recovery', async () => {
+    const c = automaticFixture();
+    let finishLookup;
+    c.loadOnlineSongInfo = () => new Promise(resolve => { finishLookup = resolve; });
+    const pending = c.playSong('b', { keepQueue: true });
+    const recovery = c.playbackState.autoAdvance;
+    await c.playSong('b', { keepQueue: true });
+    assert.equal(c.playbackState.autoAdvance, recovery);
+    finishLookup(null);
+    await pending;
+    assert.equal(c.retryTimers().length, 1);
+    assert.match(c.state.playbackError, /5 秒.*1\/3/);
 });
 
 test('manual switching cancels a retry and even an already queued callback cannot restart the old song', async () => {
@@ -125,7 +142,7 @@ test('the pause control cancels a pending automatic retry without restarting pla
     c.togglePlayPause();
     await flush();
     assert.equal(c.attempts.length, 2);
-    assert.equal(c.retryTimers().length, 0);
+    assert.equal(c.retryTimers().length, 1);
 });
 
 test('consecutive failures stop after one pass through the queue, in sequence, shuffle and repeat modes', async () => {
@@ -183,14 +200,18 @@ test('a preview retries a different source within the original startup deadline'
 test('startup timeout cancels lookup and a late result cannot start audio', async () => {
     const c = playerFixture();
     let expire, resolve;
-    c.window.setTimeout = (fn, ms) => { assert.equal(ms, 10000); expire = fn; return 0; };
+    c.window.setTimeout = (fn, ms) => {
+        if (ms === 10000) expire = fn;
+        else assert.equal(ms, 5000);
+        return ms;
+    };
     c.loadOnlineSongInfo = () => new Promise(done => { resolve = done; });
     const pending = c.playSong('b', { keepQueue: true });
     expire();
     assert.equal(c.playbackState.playController.signal.aborted, true);
     resolve({ song: c.state.currentSong, audioUrl: '/late.mp3' });
     await pending;
-    assert.match(c.state.playbackError, /10 秒/);
+    assert.match(c.state.playbackError, /5 秒.*1\/3/);
     assert.equal(c.started, undefined);
 });
 
