@@ -26,51 +26,36 @@ class VkeysSourceTests(unittest.TestCase):
         self.assertEqual(songs[1]['album'], '现场')
         self.assertTrue(all(song['download_allowed'] is False for song in songs))
 
-    def test_old_qq_ref_uses_standard_audio_and_parses_real_catalog_duration(self):
-        payload = {'mid': '001jMegF1zcMgb', 'song': '孤岛', 'singer': '赵二',
-                   'url': 'https://audio.test/full.mp3', 'interval': '4分59秒'}
-        with patch.object(app, 'fetch_vkeys_json', return_value=(payload, None)) as fetch:
-            first, error = app.resolve_qjjlb_song_info('qjjlb://qq?msg=孤岛&mid=001jMegF1zcMgb', False)
-            second, _ = app.resolve_qjjlb_song_info('qjjlb://qq?msg=赵二&mid=001jMegF1zcMgb', False)
-        self.assertIsNone(error)
-        self.assertEqual(first, second)
-        self.assertEqual(first['expected_duration'], 299)
-        self.assertEqual(fetch.call_count, 1)
-        self.assertEqual(fetch.call_args.args[1]['quality'], 7)
-        self.assertTrue(app.incomplete_audio(30, first['expected_duration']))
-        self.assertFalse(app.incomplete_audio(30, app.source_quality({'interval': '0分30秒'})['expected_duration']))
+    def test_old_qq_ref_is_not_sent_to_retired_service(self):
+        with patch.object(app, 'fetch_vkeys_json') as old:
+            info, error = app.resolve_qjjlb_song_info('qjjlb://qq?mid=old', False)
+        self.assertIsNone(info)
+        self.assertIn('停用', error)
+        old.assert_not_called()
 
-    def test_refresh_invalidates_address_and_detail_caches(self):
-        ref = 'qjjlb://qq?mid=refresh'
-        with patch.object(app, 'fetch_vkeys_json', side_effect=[
-            ({'url': 'https://audio.test/old.mp3'}, None),
-            ({'url': 'https://audio.test/new.mp3'}, None),
-        ]):
+    def test_refresh_invalidates_netease_address_cache(self):
+        ref = 'qjjlb://netease?id=refresh'
+        with patch.object(app.gd_client, 'request', side_effect=[({'url':'https://audio.test/old.mp3'}, None), ({'url':'https://audio.test/new.mp3'}, None)]):
             client = app.app.test_client()
             self.assertIn('old.mp3', client.get('/api/song-info', query_string={'url': ref, 'playback_only': 1}).json['mp3_url'])
             self.assertIn('new.mp3', client.get('/api/song-info', query_string={'url': ref, 'playback_only': 1, 'refresh': 1}).json['mp3_url'])
 
-    def test_same_id_with_wrong_response_id_is_rejected(self):
-        with patch.object(app, 'fetch_vkeys_json', return_value=({'mid': 'other', 'url': 'https://audio.test/wrong.mp3'}, None)):
-            info, error = app.resolve_qjjlb_song_info('qjjlb://qq?mid=expected', False)
+    def test_invalid_audio_url_is_rejected(self):
+        with patch.object(app.gd_client, 'request', return_value=({'url': ''}, None)):
+            info, error = app.resolve_qjjlb_song_info('qjjlb://netease?id=expected', False)
         self.assertIsNone(info)
-        self.assertIn('不匹配', error)
-        self.assertIsNone(next(iter(app._playback_cache.values()))['info'])
+        self.assertIn('未提供播放地址', error)
 
-    def test_same_mid_cannot_return_instrumental_for_normal_song(self):
-        with patch.object(app, 'fetch_vkeys_json', return_value=({'mid': 'expected', 'type': 113, 'url': 'https://audio.test/wrong.mp3'}, None)):
-            info, error = app.resolve_qjjlb_song_info('qjjlb://qq?mid=expected', False)
+    def test_instrumental_cannot_replace_normal_song(self):
+        candidate = {'title':'Song', 'artist':'Artist', 'album':'伴奏', 'url':'qjjlb://netease?id=1'}
+        with patch.object(app, 'search_qjjlb', return_value=[candidate]):
+            info, error = app.resolve_favorite_song_info({'title':'Song', 'artist':'Artist'}, False)
         self.assertIsNone(info)
-        self.assertIn('版本不匹配', error)
+        self.assertIsNotNone(error)
 
-    def test_explicit_trial_quality_is_rejected_even_with_full_catalog_length(self):
-        payload = {'url': 'https://audio.test/preview.mp3', 'quality': '试听音质', 'interval': '4分59秒'}
-        with patch.object(app, 'fetch_vkeys_json', return_value=(payload, None)):
-            info, error = app.resolve_qjjlb_song_info('qjjlb://qq?mid=trial', False)
-        self.assertIsNone(info)
-        self.assertIn('试听', error)
-        self.assertIsNone(next(iter(app._playback_cache.values()))['info'])
-        self.assertFalse(app._qq_detail_cache)
+    def test_explicit_trial_quality_is_rejected(self):
+        self.assertTrue(app.incomplete_audio(30, 299, is_preview=True))
+        self.assertFalse(app.incomplete_audio(30, 30))
 
     def test_library_capabilities_are_derived_without_rewriting_old_records(self):
         original = {'id': 'old', 'title': 'Song', 'artist': 'Artist', 'song_ref': 'qjjlb://qq?mid=old'}
@@ -155,41 +140,25 @@ class VkeysSourceTests(unittest.TestCase):
         self.assertEqual(info['song_ref'], backup['song_ref'])
         lookup.assert_called_once_with(backup['song_ref'], include_lyrics=False)
 
-    def test_old_platform_favorites_and_playlists_resolve_only_through_luoyue(self):
-        for provider in ('kuwo', 'netease'):
-            app._search_cache.clear()
-            app._source_cache.clear()
-            app._playback_cache.clear()
-            app._qq_detail_cache.clear()
-            old = {'id': 'old', 'title': 'Song', 'artist': 'Artist', 'type': provider, 'songid': '123'}
-            with patch.object(app, 'existing_music_file', return_value=None), \
-                 patch.object(app, 'find_existing_downloaded_song', return_value=None), \
-                 patch.object(app, 'fetch_vkeys_json', side_effect=[
-                     ([{'mid': 'new', 'song': 'Song', 'singer': 'Artist'}], None),
-                     ({'mid': 'new', 'song': 'Song', 'singer': 'Artist', 'url': 'https://audio.test/full.mp3'}, None),
-                 ]) as luoyue, patch.object(app, 'fetch_musicbox_json') as netease, \
-                 patch.object(app, 'fetch_qjjlb_json') as kuwo:
-                hydrated = app.hydrate_song_entry(old)
-                response = app.app.test_client().get('/api/song-info', query_string={
-                    'url': hydrated['song_ref'], 'title': old['title'], 'artist': old['artist'], 'playback_only': 1})
+    def test_old_qq_and_kuwo_match_only_netease(self):
+        item = {'id':'new', 'name':'Song', 'artist':['Artist'], 'source':'netease'}
+        def fetch(kind, **kwargs):
+            return ([item], None) if kind == 'search' else ({'url':'https://audio.test/full.mp3'}, None)
+        for provider in ('qq', 'kuwo'):
+            app._source_cache.clear(); app._search_cache.clear(); app._playback_cache.clear(); app._gd_page_cache.clear()
+            ref = app.build_qjjlb_ref(provider, **({'mid':'old'} if provider == 'qq' else {'id':'old'}))
+            with patch.object(app.gd_client, 'request', side_effect=fetch), patch.object(app, 'fetch_vkeys_json') as old:
+                response = app.app.test_client().get('/api/song-info', query_string={'url':ref, 'title':'Song', 'artist':'Artist', 'playback_only':1})
             self.assertEqual(response.status_code, 200)
             self.assertTrue(response.json['stream_only'])
-            self.assertEqual(luoyue.call_count, 2)
-            self.assertFalse(hydrated['download_allowed'])
-            self.assertNotIn('song_ref', old)
-            netease.assert_not_called()
-            kuwo.assert_not_called()
+            old.assert_not_called()
 
 
-    def test_legacy_match_tries_merged_full_version_after_preview(self):
-        main = {'title': 'Song', 'artist': 'Artist', 'song_ref': 'qjjlb://qq?mid=preview'}
-        main['alternate_versions'] = [{'title': 'Song', 'artist': 'Artist', 'song_ref': 'qjjlb://qq?mid=full'}]
-        with patch.object(app, 'search_qjjlb', return_value=[main]), \
-             patch.object(app, 'get_song_info', side_effect=[
-                 (None, '此音源为试听片段'),
-                 ({'title': 'Song', 'artist': 'Artist', 'mp3_url': 'https://audio.test/full.mp3'}, None),
-             ]) as lookup:
-            info, error = app.resolve_favorite_song_info({'title': 'Song', 'artist': 'Artist'}, False)
-        self.assertIsNone(error)
-        self.assertEqual(info['song_ref'], 'qjjlb://qq?mid=full')
-        self.assertEqual(lookup.call_count, 2)
+    def test_multiple_matching_recordings_require_confirmation(self):
+        first = {'title':'Song', 'artist':'Artist', 'song_ref':'qjjlb://netease?id=1'}
+        second = {'title':'Song', 'artist':'Artist', 'song_ref':'qjjlb://netease?id=2'}
+        with patch.object(app, 'search_qjjlb', return_value=[first, second]), patch.object(app, 'get_song_info') as lookup:
+            info, error = app.resolve_favorite_song_info({'title':'Song', 'artist':'Artist'}, False)
+        self.assertIsNone(info)
+        self.assertIn('确认版本', error)
+        lookup.assert_not_called()

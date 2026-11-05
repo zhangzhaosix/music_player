@@ -183,6 +183,9 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
 .song-item.playing-now { background: linear-gradient(110deg, #88c4ff25, #88c4ff09); border-color: #88c4ff26; }
 .song-cover { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 32px; flex-shrink: 0; border: 0; border-radius: 8px; background: #88c4ff0c; color: var(--text-secondary); }
 .song-cover svg { width: 15px; height: 15px; }
+.song-cover { position: relative; overflow: hidden; }
+.song-cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: .65; }
+.song-cover svg { position: relative; filter: drop-shadow(0 1px 2px #000); }
 .song-cover.playing { color: var(--blue); background: #88c4ff24; }
 .song-info { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: start; gap: 4px; text-align: left; background: transparent; padding: 2px 0; }
 .song-title { display: block; max-width: 100%; font-size: 13px; font-weight: 550; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

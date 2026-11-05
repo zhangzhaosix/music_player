@@ -34,14 +34,15 @@
                     <input type="search" id="searchInput" aria-label="在线搜索歌曲或歌手" placeholder="输入歌名、歌手…" autocomplete="off" enterkeyhint="search">
                     <button id="searchBtn" type="button">搜索</button>
                 </div>
-                <div class="source-spacing" aria-hidden="true"></div>
+                <div class="source-spacing">数据来源：<a href="https://music.gdstudio.xyz/" target="_blank" rel="noopener noreferrer">GD 音乐台</a> · 网易云</div>
+                <button id="gdResumeBtn" class="btn-secondary search-retry" type="button" onclick="resumeGD()" hidden>确认限制已解除，恢复请求</button>
                 <div class="search-summary"><span id="searchStatus" role="status" aria-live="polite">搜索一首喜欢的歌吧</span><span id="searchResultCount">0 首</span></div>
                 <div id="searchMiniResults" class="search-mini-list song-list"><div class="empty-state"><p>今天，想听什么？</p><p class="hint">输入歌名或歌手，开始你的音乐时光。</p></div></div>
             </section>
             <section id="player" class="panel player-panel" aria-labelledby="playerHeading">
                 <div class="panel-heading"><h2 id="playerHeading"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v-3a8 8 0 0116 0v3M4 13h3v7H4a2 2 0 01-2-2v-3a2 2 0 012-2zm16 0h-3v7h3a2 2 0 002-2v-3a2 2 0 00-2-2z"/></svg>正在播放</h2><span id="vinylState" class="playback-state" role="status">等待播放</span></div>
                 <div class="player-top">
-                    <div class="album-art" aria-hidden="true"><img class="player-illustration" src="/static/player-illustration.png" width="658" height="658" alt=""></div>
+                    <div class="album-art" aria-hidden="true"><img id="playerCover" class="player-illustration" src="/static/player-illustration.png" width="658" height="658" alt=""></div>
                     <div class="player-song-row">
                         <div class="player-info"><h2 id="playerTitle" class="player-title">暂未选择歌曲</h2><p id="playerArtist" class="player-artist">搜索并播放一首歌吧</p></div>
                         <div class="player-actions-left">

@@ -68,42 +68,43 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(data, {'code': 200, 'data': []})
         self.assertEqual(calls['count'], 2)
 
-    def test_search_qjjlb_reports_luoyue_failure_without_other_sources(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=(None, 'source failed')), \
+    def test_search_qjjlb_reports_netease_failure_without_other_sources(self):
+        with patch.object(app, 'search_qjjlb_qq') as qq, \
              patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease') as netease:
+             patch.object(app, 'search_qjjlb_netease', return_value=(None, 'source failed')) as netease:
             results = app.search_qjjlb('起风了', source_names=['qq', 'kuwo', 'netease'])
         self.assertEqual(results[1], 502)
         kuwo.assert_not_called()
-        netease.assert_not_called()
+        qq.assert_not_called()
+        netease.assert_called_once()
 
     def test_search_qjjlb_uses_selected_sources_only(self):
         with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'qq-1'}], None)) as qq, \
              patch.object(app, 'search_qjjlb_kuwo', return_value=([{'id': 'kuwo-1'}], None)) as kuwo, \
              patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)) as netease:
-            results = app.search_qjjlb('test', limit=60, source_names=['qq'], source_limit=20)
+            results = app.search_qjjlb('test', limit=60, source_names=['netease'], source_limit=20)
 
-        self.assertEqual(results, [{'id': 'qq-1'}])
-        qq.assert_called_once_with('test', 20)
+        self.assertEqual(results, [{'id': 'netease-1'}])
+        qq.assert_not_called()
         kuwo.assert_not_called()
-        netease.assert_not_called()
+        netease.assert_called_once_with('test', limit=20)
 
     def test_retired_source_selection_cannot_use_cached_results(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'qq-1'}], None)):
-            qq_results = app.search_qjjlb('same-keyword', source_names=['qq'])
+        with patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)):
+            qq_results = app.search_qjjlb('same-keyword', source_names=['netease'])
             retired_results = app.search_qjjlb('same-keyword', source_names=['kuwo'])
-        self.assertEqual(qq_results, [{'id': 'qq-1'}])
+        self.assertEqual(qq_results, [{'id': 'netease-1'}])
         self.assertNotEqual(retired_results, qq_results)
 
     def test_search_qjjlb_default_failure_does_not_call_other_sources(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=(None, 'source failed')) as qq, \
+        with patch.object(app, 'search_qjjlb_qq') as qq, \
              patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease') as netease:
+             patch.object(app, 'search_qjjlb_netease', return_value=(None, 'source failed')) as netease:
             results = app.search_qjjlb('test-default-source')
         self.assertEqual(results[1], 502)
-        qq.assert_called_once_with('test-default-source', 20)
+        qq.assert_not_called()
         kuwo.assert_not_called()
-        netease.assert_not_called()
+        netease.assert_called_once_with('test-default-source', limit=20)
 
     def test_search_qjjlb_returns_generic_error_when_all_sources_fail(self):
         with patch.object(app, 'search_qjjlb_qq', return_value=(None, 'qjjlb 暂时不可用，请检查本机网络权限或代理设置后重试')), \
@@ -113,22 +114,22 @@ class QjjlbResilienceTests(unittest.TestCase):
 
         self.assertEqual(
             result,
-            ({'error': 'qjjlb 暂时不可用，请检查本机网络权限或代理设置后重试'}, 502),
+            ({'error': 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试'}, 502),
         )
 
-    def test_api_search_uses_only_luoyue(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'qq-1'}], None)) as qq, \
+    def test_api_search_uses_only_netease(self):
+        with patch.object(app, 'search_qjjlb_qq') as qq, \
              patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease') as netease, \
+             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)) as netease, \
              patch.object(app, 'get_local_music', return_value=[]), \
              patch.object(app, 'get_favorites_map', return_value={}), \
              patch.object(app, 'find_existing_downloaded_song', return_value=None):
             resp = app.app.test_client().get('/api/search?q=test-api-search&source_limit=20')
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual([song['id'] for song in resp.json['results']], ['qq-1'])
-        qq.assert_called_once_with('test-api-search', 20)
+        self.assertEqual([song['id'] for song in resp.json['results']], ['netease-1'])
+        qq.assert_not_called()
         kuwo.assert_not_called()
-        netease.assert_not_called()
+        netease.assert_called_once_with('test-api-search', limit=20)
 
     def test_api_search_returns_friendly_error_with_502_status(self):
         client = app.app.test_client()
@@ -296,7 +297,7 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(song['filename'], existing_filename)
         self.assertEqual(song['mp3_url'], f'/api/stream/{existing_filename}')
 
-    def test_api_download_falls_back_to_source_url(self):
+    def test_api_download_rejects_gd_source_url(self):
         client = app.app.test_client()
 
         class DownloadResponse:
@@ -337,11 +338,9 @@ class QjjlbResilienceTests(unittest.TestCase):
                 'title': '知我',
             })
 
-        self.assertEqual(resp.status_code, 200)
-        data = resp.get_json()
-        self.assertTrue(data['success'])
-        self.assertTrue(data['filename'].endswith('.mp3'))
-        makedirs_mock.assert_called_once()
+        self.assertEqual(resp.status_code, 403)
+        self.assertIn('在线播放', resp.get_json()['error'])
+        makedirs_mock.assert_not_called()
 
     def test_api_download_skips_when_existing_file_matches_source_url(self):
         client = app.app.test_client()
@@ -870,12 +869,13 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(data['playlist']['songs'], [])
         write_json_mock.assert_called_once()
 
-    def test_retired_netease_search_never_fetches_old_service(self):
-        with patch.object(app, 'fetch_musicbox_json') as fetch:
+    def test_netease_search_never_fetches_old_service(self):
+        with patch.object(app, 'fetch_musicbox_json') as fetch, patch.object(app.gd_client, 'request', return_value=([], None)) as gd:
             results, error = app.search_qjjlb_netease('知我', limit=20)
-        self.assertIsNone(results)
-        self.assertIn('停用', error)
+        self.assertEqual(results, [])
+        self.assertIsNone(error)
         fetch.assert_not_called()
+        gd.assert_called_once()
 
     def test_retired_kuwo_search_never_fetches_old_service(self):
         with patch.object(app, 'fetch_qjjlb_json') as fetch:
@@ -912,10 +912,11 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(info, expected_info)
 
     def test_old_netease_ref_never_fetches_musicbox(self):
-        with patch.object(app, 'fetch_musicbox_json') as fetch, patch.object(app, 'fetch_musicbox_text') as lyric:
-            info, error = app.resolve_qjjlb_song_info('qjjlb://netease?id=1394167216')
-        self.assertIsNone(info)
-        self.assertIn('停用', error)
+        with patch.object(app, 'fetch_musicbox_json') as fetch, patch.object(app, 'fetch_musicbox_text') as lyric, \
+             patch.object(app.gd_client, 'request', return_value=({'url': 'https://test/audio.mp3'}, None)):
+            info, error = app.resolve_qjjlb_song_info('qjjlb://netease?id=1394167216', include_lyrics=False)
+        self.assertIsNone(error)
+        self.assertEqual(info['mp3_url'], 'https://test/audio.mp3')
         fetch.assert_not_called()
         lyric.assert_not_called()
 
@@ -1188,25 +1189,21 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(response.json['lyrics_status'], 'ok')
         self.assertTrue(response.json['lyrics_cached'])
 
-    def test_qq_playback_reuses_included_lyrics_and_prefers_compact_audio(self):
-        payload = {'url': 'https://test/standard.mp3', 'quality': '标准音质',
-                   'lyric': '[00:01.00]real line'}
-        with patch.object(app, 'fetch_vkeys_json', return_value=(payload, None)) as fetch:
-            first, err = app.resolve_qjjlb_song_info('qjjlb://qq?mid=speed', include_lyrics=False)
-            second, err = app.resolve_qjjlb_song_info('qjjlb://qq?mid=speed')
+    def test_netease_lyrics_load_independently_from_audio(self):
+        ref = 'qjjlb://netease?id=speed'
+        with patch.object(app.gd_client, 'request', side_effect=[({'url': 'https://test/standard.mp3'}, None), ({'lyric': '[00:01.00]real line'}, None)]) as fetch:
+            first, err = app.resolve_qjjlb_song_info(ref, include_lyrics=False)
+            second = app.app.test_client().get('/api/song-info', query_string={'url': ref, 'lyrics_only': 1}).json
         self.assertIsNone(err)
-        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(fetch.call_count, 2)
         self.assertEqual(first['mp3_url'], 'https://test/standard.mp3')
-        self.assertEqual(second['mp3_url'], first['mp3_url'])
-        self.assertEqual(first['lyrics'], [{'time': 1, 'text': 'real line'}])
-        self.assertEqual(second['lyrics'], first['lyrics'])
-        self.assertIsNotNone(app.get_cached_lyrics('qjjlb://qq?mid=speed'))
+        self.assertEqual(second['lyrics'], [{'time': 1, 'text': 'real line'}])
+        self.assertIsNotNone(app.get_cached_lyrics(ref))
 
-    def test_qq_expired_detail_cache_is_refreshed_and_errors_are_not_cached(self):
-        app._qq_detail_cache['expired'] = {'ts': 0, 'data': {'url': 'https://test/old.mp3'}}
-        with patch.object(app, 'fetch_vkeys_json', side_effect=[(None, 'timeout'), ({'url': 'https://test/new.mp3', 'lyric': '[00:01.00]line'}, None)]) as fetch:
-            _, err = app.resolve_qjjlb_song_info('qjjlb://qq?mid=expired')
-            fresh, _ = app.resolve_qjjlb_song_info('qjjlb://qq?mid=expired')
+    def test_netease_temporary_errors_are_not_cached(self):
+        with patch.object(app.gd_client, 'request', side_effect=[(None, 'timeout'), ({'url': 'https://test/new.mp3'}, None)]) as fetch:
+            _, err = app.resolve_qjjlb_song_info('qjjlb://netease?id=expired', include_lyrics=False)
+            fresh, _ = app.resolve_qjjlb_song_info('qjjlb://netease?id=expired', include_lyrics=False)
         self.assertEqual(err, 'timeout')
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(fresh['mp3_url'], 'https://test/new.mp3')

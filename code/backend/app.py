@@ -7,11 +7,13 @@ import urllib.parse
 import requests
 import threading
 import copy
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from email.utils import parsedate_to_datetime
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, send_from_directory, Response, stream_with_context
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response, stream_with_context, redirect
 from audio_analysis import AudioAnalysis, MIMES, MAX_AUDIO_BYTES, probe_audio
+from gdstudio import GDStudioClient
 
 # 配置
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -52,7 +54,7 @@ HEADERS = {
 }
 
 _stream_session = None
-_search_cache = {}
+_search_cache = OrderedDict()
 _search_cache_ttl = 300
 _lyrics_cache = {}
 _lyrics_cache_ttl = 21600
@@ -60,7 +62,7 @@ _qq_detail_cache = {}
 _playback_cache = {}
 _playback_requests = {}
 _source_requests = {}
-_source_cache = {}
+_source_cache = OrderedDict()
 _request_lock = threading.RLock()
 _request_context = threading.local()
 _search_workers = ThreadPoolExecutor(max_workers=3, thread_name_prefix='music-search')
@@ -69,11 +71,18 @@ _validation_slots = threading.BoundedSemaphore(24)
 SEARCH_BUDGET = 12
 PLAYBACK_BUDGET = 10
 CACHE_LIMIT = 128
-SEARCH_SOURCES = ('qq',)
+SEARCH_SOURCES = ('netease',)
 RECORDING_VERSION_PATTERN = r'(?<![a-z])live(?![a-z])|现场|演唱会|(?<![a-z])dj|remix|伴奏|instrumental|翻唱|\bcover\b|acoustic|不插电|remaster|重制|粤语|国语|日语|英语|韩语|剪辑|完整版'
 DEFAULT_SOURCE_LIMIT = 20
 AUDIO_URL_SUFFIX = re.compile(r'\.(?:mp3|m4a|aac|flac|wav|ogg|opus)(?:[?#].*)?$', re.IGNORECASE)
 audio_analysis = AudioAnalysis(BASE_DIR, MUSIC_DIR)
+gd_client = GDStudioClient(os.path.join(BASE_DIR, '.cache', 'gdstudio-requests.sqlite'))
+_gd_stream_urls = set()
+_gd_covers = OrderedDict()
+_gd_cover_lock = threading.Lock()
+_gd_page_cache = OrderedDict()
+_gd_page_requests = {}
+_gd_workers = ThreadPoolExecutor(max_workers=1, thread_name_prefix='gd-search')
 
 
 def playback_headers(url):
@@ -85,7 +94,7 @@ def playback_headers(url):
 
 def is_stream_only_url(url):
     parsed = urllib.parse.urlparse(str(url or ''))
-    return (parsed.hostname or '').endswith('.qqmusic.qq.com') and 'api.vkeys.cn' in urllib.parse.parse_qs(parsed.query).get('guid', [])
+    return str(url or '') in _gd_stream_urls or ((parsed.hostname or '').endswith('.qqmusic.qq.com') and 'api.vkeys.cn' in urllib.parse.parse_qs(parsed.query).get('guid', []))
 
 
 @app.teardown_request
@@ -188,28 +197,34 @@ def make_search_cache_key(keyword, source_names=None, source_limit=DEFAULT_SOURC
 
 
 def get_cached_search_results(keyword, source_names=None, source_limit=DEFAULT_SOURCE_LIMIT):
-    cached = _search_cache.get(make_search_cache_key(keyword, source_names, source_limit))
-    if not cached:
-        return None
-    if time.time() - cached['ts'] > _search_cache_ttl:
-        _search_cache.pop(make_search_cache_key(keyword, source_names, source_limit), None)
-        return None
-    results = []
-    for song in cached['results']:
-        status = _playback_cache.get(song_identity_key(song))
-        if not (status and status.get('error') and time.time() - status['ts'] < 300):
-            results.append(dict(song))
-    return results
+    key = make_search_cache_key(keyword, source_names, source_limit)
+    with _request_lock:
+        cached = _search_cache.get(key)
+        if not cached:
+            return None
+        if time.time() - cached['ts'] > _search_cache_ttl:
+            _search_cache.pop(key, None)
+            return None
+        _search_cache.move_to_end(key)
+        results = []
+        for song in cached['results']:
+            status = _playback_cache.get(song_identity_key(song))
+            if not (status and status.get('error') and time.time() - status['ts'] < 300):
+                results.append(dict(song))
+        return results
 
 
 
 def store_search_results(keyword, results, source_names=None, source_limit=DEFAULT_SOURCE_LIMIT):
-    if len(_search_cache) >= CACHE_LIMIT:
-        _search_cache.pop(next(iter(_search_cache)))
-    _search_cache[make_search_cache_key(keyword, source_names, source_limit)] = {
-        'ts': time.time(),
-        'results': [dict(song) for song in results],
-    }
+    key = make_search_cache_key(keyword, source_names, source_limit)
+    with _request_lock:
+        if key not in _search_cache and len(_search_cache) >= CACHE_LIMIT:
+            _search_cache.popitem(last=False)
+        _search_cache[key] = {
+            'ts': time.time(),
+            'results': [dict(song) for song in results],
+        }
+        _search_cache.move_to_end(key)
 
 
 def parse_lrc_text(lrc_text):
@@ -579,8 +594,60 @@ def make_musicbox_netease_song(item):
     }
 
 
-def search_qjjlb_netease(keyword, page=1, limit=10):
-    return None, '旧音源已停用，请通过落月重新匹配歌曲'
+def search_qjjlb_netease(keyword, page=1, limit=10, background=False):
+    key = (keyword, page, limit, background)
+    with _request_lock:
+        cached = _gd_page_cache.get(key)
+        if cached and time.time() - cached[0] < 300:
+            _gd_page_cache.move_to_end(key)
+            return copy.deepcopy(cached[1]), None
+        future = _gd_page_requests.get(key)
+        if future is None:
+            if len(_gd_page_requests) >= 24:
+                return None, '搜索繁忙，请稍后重试'
+            future = _gd_workers.submit(fetch_gd_search, keyword, page, limit, background)
+            _gd_page_requests[key] = future
+            def release(completed):
+                with _request_lock:
+                    if not completed.cancelled() and completed.exception() is None:
+                        songs, error = completed.result()
+                        if not error:
+                            if key not in _gd_page_cache and len(_gd_page_cache) >= CACHE_LIMIT:
+                                _gd_page_cache.popitem(last=False)
+                            _gd_page_cache[key] = (time.time(), copy.deepcopy(songs))
+                            _gd_page_cache.move_to_end(key)
+                    if _gd_page_requests.get(key) is completed:
+                        _gd_page_requests.pop(key, None)
+            future.add_done_callback(release)
+    try:
+        songs, error = future.result(timeout=SEARCH_BUDGET)
+        return copy.deepcopy(songs), error
+    except TimeoutError:
+        return None, 'GD 音乐台搜索超时，请重试'
+    except Exception:
+        app.logger.exception('GD 音乐台搜索失败')
+        return None, 'GD 音乐台搜索失败，请重试'
+
+
+def fetch_gd_search(keyword, page, limit, background=False):
+    data, error = gd_client.request('search', name=keyword, count=limit, pages=page, background=background)
+    if error:
+        return None, error
+    if not isinstance(data, list):
+        return None, 'GD 音乐台搜索结果无效'
+    songs = []
+    for item in data:
+        if not isinstance(item, dict) or not item.get('id') or item.get('source') != 'netease':
+            continue
+        item = dict(item)
+        item['artist'] = ' / '.join(str(x) for x in item.get('artist', []) if x) if isinstance(item.get('artist'), list) else item.get('artist', '')
+        ref = build_qjjlb_ref('netease', id=item['id'], lyric_id=item.get('lyric_id', ''))
+        song = make_qjjlb_song('netease', item, url=ref, source_url=ref)
+        pic_id = str(item.get('pic_id', ''))
+        song.update({'stream_only': True, 'download_allowed': False, 'lyric_id': str(item.get('lyric_id', '')),
+                     'pic_id': pic_id, 'cover_url': '/api/gd-cover/' + urllib.parse.quote(pic_id, safe='') if pic_id else ''})
+        songs.append(song)
+    return songs, None
 
 
 def search_qjjlb_qq(keyword, limit=10):
@@ -641,7 +708,7 @@ def search_qjjlb_kuwo(keyword, limit=10):
 
 
 def fetch_search_source(keyword, source, source_limit, deadline):
-    fetchers = {'qq': search_qjjlb_qq}
+    fetchers = {'netease': lambda word, limit: search_qjjlb_netease(word, limit=limit)}
     _request_context.deadline = deadline
     try:
         if time.monotonic() >= deadline:
@@ -651,9 +718,10 @@ def fetch_search_source(keyword, source, source_limit, deadline):
         if not error:
             with _request_lock:
                 key = (keyword, source, source_limit)
-                if len(_source_cache) >= CACHE_LIMIT:
-                    _source_cache.pop(next(iter(_source_cache)))
+                if key not in _source_cache and len(_source_cache) >= CACHE_LIMIT:
+                    _source_cache.popitem(last=False)
                 _source_cache[key] = {'ts': time.time(), 'results': copy.deepcopy(clean)}
+                _source_cache.move_to_end(key)
         return clean, error
     except Exception:
         app.logger.exception('search source=%s failed', source)
@@ -781,7 +849,7 @@ def search_snapshots(keyword, limit=60, source_names=None, source_limit=DEFAULT_
                 ref = song_ref_from_song(song)
                 if playable_only and urllib.parse.urlparse(ref).netloc == 'qq':
                     if not _validation_slots.acquire(blocking=False):
-                        errors['qq'] = '音源核验繁忙，请重试'
+                        errors[source_names[0] if source_names else SEARCH_SOURCES[0]] = '音源核验繁忙，请重试'
                         continue
                     future = _search_workers.submit(validate_search_song, dict(song), deadline)
                     future.add_done_callback(lambda completed: _validation_slots.release())
@@ -793,6 +861,7 @@ def search_snapshots(keyword, limit=60, source_names=None, source_limit=DEFAULT_
             key = (keyword, source, source_limit)
             hit = _source_cache.get(key)
             if hit and time.time() - hit['ts'] < _search_cache_ttl:
+                _source_cache.move_to_end(key)
                 merge(copy.deepcopy(hit['results']))
                 continue
             future = _source_requests.get(key)
@@ -823,7 +892,7 @@ def search_snapshots(keyword, limit=60, source_names=None, source_limit=DEFAULT_
                     if song:
                         results.append(song)
                     if error:
-                        errors['qq'] = error
+                        errors[SEARCH_SOURCES[0]] = error
                 else:
                     songs, error = future.result()
                     merge(songs)
@@ -832,7 +901,7 @@ def search_snapshots(keyword, limit=60, source_names=None, source_limit=DEFAULT_
             if pending:
                 yield {'results': list(results[:limit]), 'done': False, 'source_errors': dict(errors)}
         if pending:
-            errors['qq'] = '音源核验超时，请重试'
+            errors[SEARCH_SOURCES[0]] = '音源核验超时，请重试'
         if not errors and playable_only:
             with _request_lock:
                 store_search_results(keyword, results, sources, source_limit)
@@ -1199,7 +1268,7 @@ def resolve_favorite_song_info(fav, include_lyrics=True):
     direct_info = None
     excluded = str(fav.get('excluded_ref', '') or '')
 
-    if is_supported_song_url(source_url):
+    if urllib.parse.urlparse(source_url).netloc == 'netease' and is_supported_song_url(source_url):
         info, err = get_song_info(source_url, include_lyrics=include_lyrics)
         if info and not err and info.get('mp3_url'):
             direct_info = info
@@ -1212,7 +1281,7 @@ def resolve_favorite_song_info(fav, include_lyrics=True):
             return direct_info, None
         return None, '无法恢复歌曲播放信息'
 
-    search_results = search_qjjlb(query, limit=20, source_names=SEARCH_SOURCES, source_limit=10, playable_only=False)
+    search_results = search_qjjlb(query, limit=50, source_names=SEARCH_SOURCES, source_limit=50, playable_only=False)
     if isinstance(search_results, tuple):
         payload, _ = search_results
         return None, payload.get('error', '未找到可播放歌曲')
@@ -1233,11 +1302,15 @@ def resolve_favorite_song_info(fav, include_lyrics=True):
         if expected_versions != actual_versions:
             continue
         score = score_song_match(candidate, title, artist)
+        candidate_artists = {normalize_song_match_text(part) for part in re.split(r'[/、,&＆;；]', str(candidate.get('artist', ''))) if part.strip()}
+        saved_artists = {normalize_song_match_text(part) for part in re.split(r'[/、,&＆;；]', artist) if part.strip()}
         if (normalize_song_match_text(candidate.get('title')) == normalize_song_match_text(title)
-                and matching_artist_credits(candidate.get('artist'), artist)
+                and candidate_artists == saved_artists and bool(saved_artists)
                 and score >= 16):
             matches.append((score, candidate))
 
+    if len(matches) > 1:
+        return None, '找到多个同名同歌手录音，需手动确认版本'
     last_error = ''
     for _, best in sorted(matches, key=lambda pair: pair[0], reverse=True)[:2]:
         if time.monotonic() >= getattr(_request_context, 'deadline', float('inf')):
@@ -1249,7 +1322,7 @@ def resolve_favorite_song_info(fav, include_lyrics=True):
         if is_supported_song_url(candidate_url):
             info, err = get_song_info(candidate_url, include_lyrics=include_lyrics)
             if err or not info or not info.get('mp3_url') or info.get('is_preview'):
-                candidate_error = err or '落月暂未提供可播放的完整版'
+                candidate_error = err or 'GD 音乐台暂未提供可播放的版本'
                 if not last_error or is_unavailable_source_error(last_error) or not is_unavailable_source_error(candidate_error):
                     last_error = candidate_error
                 continue
@@ -1263,7 +1336,7 @@ def resolve_favorite_song_info(fav, include_lyrics=True):
     if direct_info:
         return direct_info, None
 
-    return None, last_error or '落月暂无可确认同歌手、同版本的可播完整版'
+    return None, last_error or 'GD 音乐台暂无可确认同歌手、同版本的歌曲'
 
 
 # 常见中文歌手名单（无分隔符时用于拆分识别）
@@ -1425,7 +1498,9 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
             return None, '播放解析超时，请重试'
         with _request_lock:
             cached = _playback_cache.get(key)
-        return (copy.deepcopy(cached.get('info')), cached.get('error')) if cached else (None, '音源解析失败，请重试')
+        if cached:
+            return copy.deepcopy(cached.get('info')), cached.get('error')
+        return copy.deepcopy(getattr(event, 'result', (None, '音源解析失败，请重试')))
     previous = getattr(_request_context, 'deadline', None)
     _request_context.deadline = min(previous or float('inf'), time.monotonic() + PLAYBACK_BUDGET)
     try:
@@ -1440,6 +1515,7 @@ def resolve_qjjlb_song_info(song_url, include_lyrics=True):
                 if len(_playback_cache) >= CACHE_LIMIT:
                     _playback_cache.pop(next(iter(_playback_cache)))
                 _playback_cache[key] = {'ts': time.time(), 'info': copy.deepcopy(info), 'error': error}
+        event.result = (copy.deepcopy(info), error)
         return info, error
     finally:
         if previous is None:
@@ -1462,59 +1538,33 @@ def resolve_qjjlb_song_info_uncached(song_url, include_lyrics=True):
     if not provider:
         return None, '无效的 qjjlb 链接'
 
-    if provider in ('netease', 'kuwo'):
-        return None, '旧音源已停用，请通过落月重新匹配歌曲'
-
-    if provider == 'qq':
-        mid = params.get('mid', '').strip()
-        if not mid:
-            return None, 'qjjlb QQ 缺少歌曲 mid'
-        song_type = params.get('song_type', '0')
-        cache_key = mid if song_type in ('0', '1') else f'{mid}:{song_type}'
-        cached = _qq_detail_cache.get(cache_key)
-        if cached and time.time() - cached['ts'] < 300:
-            detail_data, err = copy.deepcopy(cached['data']), None
-        else:
-            detail_data, err = fetch_vkeys_json('/geturl', {'mid': mid, 'type': song_type, 'quality': 7})
+    if provider == 'netease':
+        song_id = params.get('id', '').strip()
+        if not song_id:
+            return None, '缺少网易云歌曲 ID'
+        payload, err = gd_client.request('url', id=song_id, br=320)
         if err:
             return None, err
-        if not isinstance(detail_data, dict):
-            return None, '落月 QQ 返回了无效数据'
-        if str(detail_data.get('mid', mid)) != mid:
-            return None, '播放服务返回的歌曲 ID 不匹配'
-        actual_type = str(detail_data.get('type', song_type))
-        if actual_type != song_type and {actual_type, song_type} != {'0', '1'}:
-            return None, '播放服务返回的歌曲版本不匹配'
-        mp3_url = str(detail_data.get('url', '') or '')
-        if mp3_url and not source_quality(detail_data)['is_preview'] and not (cached and time.time() - cached['ts'] < 300):
-            if len(_qq_detail_cache) >= CACHE_LIMIT:
-                _qq_detail_cache.pop(next(iter(_qq_detail_cache)))
-            _qq_detail_cache[cache_key] = {'ts': time.time(), 'data': copy.deepcopy(detail_data)}
-        lyric_text = detail_data.get('lyric', '') or ''
-        lyric_error = ''
-        if include_lyrics and not lyric_text and not get_cached_lyrics(song_url):
-            lyric_data, lyric_error = fetch_vkeys_json('/lyric', {'mid': mid})
-            if isinstance(lyric_data, dict):
-                lyric_text = lyric_data.get('lyric', '') or lyric_data.get('lrc', '') or ''
-        cached_lyrics = get_cached_lyrics(song_url)
-        info = {
-            'title': detail_data.get('song') or '未知歌曲',
-            'artist': detail_data.get('singer') or '未知歌手',
-            'mp3_url': mp3_url,
-            'source_url': detail_data.get('link') or f'https://y.qq.com/n/ryqq/songDetail/{mid}',
-            'cover_url': detail_data.get('cover', ''),
-            'album': detail_data.get('album', ''),
-            'version': detail_data.get('subtitle', ''),
-            'lyric_id': mid,
-            'lyrics': cached_lyrics['lyrics'] if cached_lyrics else parse_lrc_text(lyric_text),
-            'quality_label': detail_data.get('quality', '标准音质'),
-            'stream_only': True,
-            'download_allowed': False,
-            'song_ref': song_url,
-            **source_quality(detail_data),
-        }
-        return (set_lyrics_state(info, song_url, 'qq', lyric_error) if include_lyrics else info), None
+        mp3_url = str(payload.get('url', '') or '') if isinstance(payload, dict) else ''
+        if urllib.parse.urlparse(mp3_url).scheme not in ('http', 'https'):
+            return None, 'GD 音乐台未提供播放地址'
+        _gd_stream_urls.add(mp3_url)
+        lyric_id = params.get('lyric_id', '') or song_id
+        lyrics, lyric_error = [], ''
+        if include_lyrics:
+            cached = get_cached_lyrics(song_url)
+            if cached:
+                lyrics = cached['lyrics']
+            else:
+                lyric_data, lyric_error = gd_client.request('lyric', id=lyric_id)
+                if isinstance(lyric_data, dict):
+                    lyrics = parse_lrc_text(lyric_data.get('lyric', ''))
+        info = {'mp3_url': mp3_url, 'song_ref': song_url, 'lyric_id': lyric_id,
+                'lyrics': lyrics, 'stream_only': True, 'download_allowed': False}
+        return (set_lyrics_state(info, song_url, 'netease', lyric_error) if include_lyrics else info), None
 
+    if provider in ('kuwo', 'qq'):
+        return None, '旧音源已停用，请重新匹配歌曲'
 
     return None, f'不支持的 qjjlb 来源: {provider}'
 
@@ -1731,6 +1781,15 @@ def api_search():
     except (TypeError, ValueError):
         return jsonify({'error': 'source_limit 必须是数字'}), 400
     source_limit = max(1, min(50, source_limit))
+    try:
+        page = max(1, min(100, int(request.args.get('page', 1))))
+    except (TypeError, ValueError):
+        return jsonify({'error': '页码必须是数字'}), 400
+    if page > 1:
+        results, error = search_qjjlb_netease(q, page=page, limit=source_limit)
+        if error:
+            return jsonify({'error': error}), 502
+        return jsonify({'results': decorate_search_results(results), 'has_more': len(results) >= source_limit})
 
     if request.args.get('stream') == '1':
         def generate():
@@ -1778,6 +1837,38 @@ def decorate_search_results(results):
     return results
 
 
+@app.route('/api/gd-cover/<pic_id>')
+def api_gd_cover(pic_id):
+    if not pic_id.isdigit() or len(pic_id) > 32:
+        return '', 400
+    with _gd_cover_lock:
+        cached = _gd_covers.get(pic_id)
+        if cached and time.time() - cached[0] < (21600 if cached[1] else 60):
+            _gd_covers.move_to_end(pic_id)
+            return redirect(cached[1]) if cached[1] else send_from_directory(app.static_folder, 'player-illustration.png')
+        if pic_id not in _gd_covers and len(_gd_covers) >= CACHE_LIMIT:
+            _gd_covers.popitem(last=False)
+        payload, error = gd_client.request('pic', id=pic_id, size=300)
+        if error:
+            _gd_covers[pic_id] = (time.time(), '')
+            return send_from_directory(app.static_folder, 'player-illustration.png')
+        url = str(payload.get('url', '')) if isinstance(payload, dict) else ''
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            _gd_covers[pic_id] = (time.time(), '')
+            return send_from_directory(app.static_folder, 'player-illustration.png')
+        _gd_covers[pic_id] = (time.time(), url)
+        return redirect(url)
+
+
+@app.route('/api/gd-resume', methods=['POST'])
+def api_gd_resume():
+    if not request.is_json or request.get_json(silent=True) != {'confirmed': True}:
+        return jsonify({'error': '请确认访问限制已解除'}), 400
+    gd_client.resume()
+    return jsonify({'success': True})
+
+
 @app.route('/api/song-info')
 def api_song_info():
     """获取歌曲详情（含 MP3 链接）"""
@@ -1815,6 +1906,13 @@ def api_song_info():
         cached = get_cached_lyrics(song_ref)
         if cached:
             return jsonify({**cached, 'lyrics_status': 'ok', 'lyrics_message': '', 'song_ref': song_ref})
+        parsed_ref = urllib.parse.urlparse(song_ref)
+        if parsed_ref.scheme == 'qjjlb' and parsed_ref.netloc == 'netease':
+            parts = urllib.parse.parse_qs(parsed_ref.query)
+            lyric_id = parts.get('lyric_id', parts.get('id', ['']))[0]
+            data, error = gd_client.request('lyric', id=lyric_id)
+            lyric = data.get('lyric', '') if isinstance(data, dict) else ''
+            return jsonify(set_lyrics_state({'lyrics': parse_lrc_text(lyric)}, song_ref, 'netease', error))
         try:
             info, err = get_song_info(lookup_url)
         except requests.RequestException:
@@ -1869,7 +1967,8 @@ def api_song_info():
         ))
         return jsonify(local_info)
 
-    info, err = (None, '当前音源不可用') if fallback_only else (
+    legacy = not AUDIO_URL_SUFFIX.search(lookup_url) and (urllib.parse.urlparse(lookup_url).scheme != 'qjjlb' or urllib.parse.urlparse(lookup_url).netloc != 'netease')
+    info, err = (None, '旧音源已停用，请重新匹配歌曲') if fallback_only or legacy else (
         get_song_info(lookup_url, include_lyrics=False)
         if playback_only
         else get_song_info(lookup_url)
@@ -2023,9 +2122,20 @@ def api_proxy_stream():
             stream=True,
             timeout=(4, 8),
         )
+        if is_stream_only_url(mp3_url) and req.status_code in (403, 429):
+            if req.status_code == 403:
+                gd_client.block()
+            else:
+                gd_client.cooldown(req.headers.get('Retry-After', ''))
+            req.close()
+            return jsonify({'error': '音源拒绝访问或请求受限，请稍后手动处理'}), 502
         req.raise_for_status()
         content_type = req.headers.get('Content-Type', '').lower()
         if req.headers.get('Content-Length') == '0' or content_type.startswith(('text/', 'application/json')):
+            if is_stream_only_url(mp3_url):
+                sample = next(req.iter_content(chunk_size=4096), b'').decode('utf-8', errors='ignore').lower()
+                if any(marker in sample for marker in ('captcha', '验证码', '人机验证')):
+                    gd_client.block()
             req.close()
             return jsonify({'error': '上游返回了空音源或非音频内容，请重新选择歌曲'}), 502
         total_length = req.headers.get('Content-Range', '').split('/')[-1] if req.headers.get('Content-Range') else req.headers.get('Content-Length', '')
@@ -2094,6 +2204,8 @@ def api_download():
         'url': song_url,
         'source_url': source_url,
     })
+    if urllib.parse.urlparse(song_ref).netloc == 'netease' or is_stream_only_url(song_url):
+        return jsonify({'error': '此来源仅供在线播放'}), 403
     mp3_url, resolved_url, err = resolve_download_target(song_url, song_ref or source_url)
     if err:
         return jsonify({'error': f'获取下载链接失败: {err}'}), 502
@@ -2194,6 +2306,8 @@ def api_add_favorite():
         'mp3_url': data.get('mp3_url', ''),
         'song_ref': data.get('song_ref', '') or song_ref_from_song(data),
         'source': data.get('source', ''),
+        'cover_url': data.get('cover_url', ''),
+        'pic_id': data.get('pic_id', ''),
         'type': data.get('type', ''),
         'songid': data.get('songid', ''),
         'lyric_id': data.get('lyric_id', ''),

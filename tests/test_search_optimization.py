@@ -18,48 +18,48 @@ class SearchOptimizationTests(unittest.TestCase):
             cache.clear()
 
     def test_search_never_dispatches_retired_sources(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'one'}], None)) as qq, \
+        with patch.object(app, 'search_qjjlb_qq') as qq, \
              patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease') as netease:
+             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'one'}], None)) as netease:
             final = list(app.search_snapshots('single', source_names=['qq', 'kuwo', 'netease']))[-1]
         self.assertTrue(final['done'])
         self.assertEqual(final['results'], [{'id': 'one'}])
-        self.assertEqual(qq.call_count, 1)
+        qq.assert_not_called()
         kuwo.assert_not_called()
-        netease.assert_not_called()
+        self.assertEqual(netease.call_count, 1)
 
     def test_source_deadline_reports_failure_without_other_source_requests(self):
-        def slow(*args):
+        def slow(*args, **kwargs):
             time.sleep(.15)
             return [], None
         with patch.object(app, 'SEARCH_BUDGET', .05), \
-             patch.object(app, 'search_qjjlb_qq', side_effect=slow):
+             patch.object(app, 'search_qjjlb_netease', side_effect=slow):
             started = time.monotonic()
             final = list(app.search_snapshots('deadline'))[-1]
             self.assertLess(time.monotonic() - started, .12)
             self.assertEqual(final['results'], [])
-            self.assertIn('qq', final['source_errors'])
+            self.assertIn('netease', final['source_errors'])
             time.sleep(.16)
 
     def test_two_searches_coalesce_and_then_hit_cache(self):
         entered = threading.Event()
-        def fetch(*args):
+        def fetch(*args, **kwargs):
             entered.set()
             time.sleep(.06)
             return [{'id': 'one'}], None
-        with patch.object(app, 'search_qjjlb_qq', side_effect=fetch) as mocked:
+        with patch.object(app, 'search_qjjlb_netease', side_effect=fetch) as mocked:
             with ThreadPoolExecutor(max_workers=2) as callers:
-                a = callers.submit(app.search_qjjlb, 'same', source_names=['qq'])
+                a = callers.submit(app.search_qjjlb, 'same', source_names=['netease'])
                 entered.wait(1)
-                b = callers.submit(app.search_qjjlb, 'same', source_names=['qq'])
+                b = callers.submit(app.search_qjjlb, 'same', source_names=['netease'])
                 self.assertEqual(a.result(), b.result())
-            self.assertEqual(app.search_qjjlb('same', source_names=['qq']), [{'id': 'one'}])
+            self.assertEqual(app.search_qjjlb('same', source_names=['netease']), [{'id': 'one'}])
             self.assertEqual(mocked.call_count, 1)
 
     def test_explicit_preview_filtered_but_legitimate_short_piece_kept(self):
         songs = [{'id': 'preview', 'is_preview': True}, {'id': 'short', 'expected_duration': 30}]
-        with patch.object(app, 'search_qjjlb_qq', return_value=(songs, None)):
-            self.assertEqual(app.search_qjjlb('quality', source_names=['qq']), [songs[1]])
+        with patch.object(app, 'search_qjjlb_netease', return_value=(songs, None)):
+            self.assertEqual(app.search_qjjlb('quality', source_names=['netease']), [songs[1]])
         self.assertFalse(app.incomplete_audio(30, 30))
         self.assertFalse(app.incomplete_audio(30, None))
         self.assertTrue(app.incomplete_audio(30, 200))
@@ -153,16 +153,15 @@ class SearchOptimizationTests(unittest.TestCase):
                 self.assertIsNone(info)
                 self.assertTrue(error)
 
-    def test_fallback_accepts_original_duet_with_partial_saved_credits(self):
+    def test_fallback_rejects_duet_with_partial_saved_credits(self):
         candidate = {'title': '如果的事', 'artist': '范玮琪/张韶涵', 'url': 'qjjlb://netease?id=229271'}
         info = {**candidate, 'mp3_url': 'https://audio.test/full.mp3'}
         with patch.object(app, 'search_qjjlb', return_value=[candidate]), \
              patch.object(app, 'get_song_info', return_value=(info, None)) as resolve:
             result, error = app.resolve_favorite_song_info({'title': '如果的事', 'artist': '范玮琪'}, False)
-            self.assertIsNone(error)
-            self.assertEqual(result['mp3_url'], info['mp3_url'])
-            self.assertEqual(result['song_ref'], candidate['url'])
-            resolve.assert_called_once_with(candidate['url'], include_lyrics=False)
+            self.assertIsNone(result)
+            self.assertIsNotNone(error)
+            resolve.assert_not_called()
         self.assertTrue(app.matching_artist_credits('张韶涵 / 范玮琪', '范玮琪/张韶涵'))
         self.assertFalse(app.matching_artist_credits('范玮琪翻唱 / 其他歌手', '范玮琪'))
         self.assertFalse(app.matching_artist_credits('范玮琪', '范玮琪/张韶涵'))
@@ -173,14 +172,14 @@ class SearchOptimizationTests(unittest.TestCase):
              patch.object(app, 'search_qjjlb', return_value=({'error': '来源暂时不可用'}, 502)):
             response = app.app.test_client().get('/api/song-info', query_string={
                 'url': 'qjjlb://qq?mid=failed', 'title': 'Song', 'artist': 'Artist', 'playback_only': 1})
-            self.assertEqual(original.call_count, 1)
+            self.assertEqual(original.call_count, 0)
             self.assertEqual(response.status_code, 502)
             self.assertEqual(response.get_json()['error'], '来源暂时不可用')
 
-    def test_stream_endpoint_returns_only_luoyue_and_finishes(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'good'}], None)), \
+    def test_stream_endpoint_returns_only_netease_and_finishes(self):
+        with patch.object(app, 'search_qjjlb_qq') as qq, \
              patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease') as netease, \
+             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'good'}], None)) as netease, \
              patch.object(app, 'decorate_search_results', side_effect=lambda songs: songs):
             response = app.app.test_client().get('/api/search?q=stream-test&stream=1')
             import json
@@ -189,7 +188,8 @@ class SearchOptimizationTests(unittest.TestCase):
             self.assertEqual(snapshots[-1]['results'], [{'id': 'good'}])
             self.assertEqual(snapshots[-1]['source_errors'], {})
             kuwo.assert_not_called()
-            netease.assert_not_called()
+            qq.assert_not_called()
+            self.assertEqual(netease.call_count, 1)
 
 
 if __name__ == '__main__':
