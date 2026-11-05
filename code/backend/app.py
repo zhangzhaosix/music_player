@@ -2106,6 +2106,11 @@ def api_proxy_stream():
     if not mp3_url:
         return jsonify({'error': '缺少 MP3 链接'}), 400
 
+    if is_stream_only_url(mp3_url):
+        access_error = gd_client.access_error()
+        if access_error:
+            return jsonify({'error': access_error}), 503
+
     stream_headers = playback_headers(mp3_url)
     range_header = request.headers.get('Range')
     if range_header:
@@ -2124,7 +2129,7 @@ def api_proxy_stream():
         )
         if is_stream_only_url(mp3_url) and req.status_code in (403, 429):
             if req.status_code == 403:
-                gd_client.block()
+                gd_client.block('音频服务器 %s 返回 HTTP 403' % urllib.parse.urlparse(mp3_url).hostname)
             else:
                 gd_client.cooldown(req.headers.get('Retry-After', ''))
             req.close()
@@ -2135,7 +2140,7 @@ def api_proxy_stream():
             if is_stream_only_url(mp3_url):
                 sample = next(req.iter_content(chunk_size=4096), b'').decode('utf-8', errors='ignore').lower()
                 if any(marker in sample for marker in ('captcha', '验证码', '人机验证')):
-                    gd_client.block()
+                    gd_client.block('音频服务器 %s 要求验证' % urllib.parse.urlparse(mp3_url).hostname)
             req.close()
             return jsonify({'error': '上游返回了空音源或非音频内容，请重新选择歌曲'}), 502
         total_length = req.headers.get('Content-Range', '').split('/')[-1] if req.headers.get('Content-Range') else req.headers.get('Content-Length', '')

@@ -4,6 +4,7 @@ import tempfile
 import threading
 import unittest
 import requests
+from contextlib import closing
 from email.utils import formatdate
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'backend'))
@@ -88,6 +89,19 @@ class GDStudioClientTests(unittest.TestCase):
         payload, error = self.client.request('search')
         self.assertIsNone(error)
         self.assertEqual(payload[0]['name'], '验证码')
+
+    def test_block_reason_survives_restart_and_resume_preserves_evidence(self):
+        self.session.response = Response(403)
+        self.client.request('url', id='123')
+        other = GDStudioClient(self.path, self.session, lambda: self.now)
+        self.assertIn('GD 接口 url 返回 HTTP 403', other.request('search')[1])
+        other.resume()
+        self.session.response = Response()
+        self.assertIsNone(other.request('search')[1])
+        import sqlite3
+        with closing(sqlite3.connect(self.path)) as db:
+            self.assertEqual(db.execute('SELECT at, reason FROM restriction').fetchone(),
+                             (1000, 'GD 接口 url 返回 HTTP 403'))
 
     def test_parallel_clients_stop_after_first_403(self):
         entered, release = threading.Event(), threading.Event()

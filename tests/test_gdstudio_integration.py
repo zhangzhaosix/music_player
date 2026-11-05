@@ -181,6 +181,21 @@ class GDIntegrationTests(unittest.TestCase):
         self.assertEqual(response.status_code, 502)
         block.assert_called_once()
 
+    def test_cached_audio_cannot_request_upstream_while_paused_or_cooling_down(self):
+        from gdstudio import GDStudioClient
+        with tempfile.TemporaryDirectory() as directory:
+            gd = GDStudioClient(str(Path(directory) / 'state.sqlite'), clock=lambda: 1000)
+            url = 'https://audio.example/cached.mp3'
+            app._gd_stream_urls.add(url)
+            self.addCleanup(app._gd_stream_urls.discard, url)
+            with patch.object(app, 'gd_client', gd), patch.object(app, 'get_stream_session') as session:
+                gd.block()
+                self.assertEqual(app.app.test_client().get('/api/proxy-stream', query_string={'url': url}).status_code, 503)
+                gd.resume()
+                gd.cooldown('120')
+                self.assertEqual(app.app.test_client().get('/api/proxy-stream', query_string={'url': url}).status_code, 503)
+                session.assert_not_called()
+
     def test_limited_audio_honors_retry_after(self):
         class Response:
             status_code = 429

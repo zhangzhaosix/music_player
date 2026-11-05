@@ -62,19 +62,37 @@ class GDStudioClient:
             db.execute('CREATE TABLE IF NOT EXISTS requests (at REAL NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS state (id INTEGER PRIMARY KEY, blocked INTEGER NOT NULL, cooldown REAL NOT NULL)')
             db.execute('INSERT OR IGNORE INTO state VALUES (1, 0, 0)')
+            db.execute('CREATE TABLE IF NOT EXISTS restriction (id INTEGER PRIMARY KEY, at REAL NOT NULL, reason TEXT NOT NULL)')
+
+    def _record_restriction(self, db, reason):
+        db.execute('INSERT OR REPLACE INTO restriction VALUES (1, ?, ?)', (self.clock(), reason))
+        logging.getLogger(__name__).warning('GD access paused: %s', reason)
 
     def resume(self):
         with self.lock, process_lock(self.state_file + '.lock'), closing(sqlite3.connect(self.state_file)) as db, db:
             db.execute('UPDATE state SET blocked=0 WHERE id=1')
 
-    def block(self):
+    def block(self, reason='音频服务器拒绝访问'):
         with self.lock, process_lock(self.state_file + '.lock'), closing(sqlite3.connect(self.state_file)) as db, db:
             db.execute('UPDATE state SET blocked=1 WHERE id=1')
+            self._record_restriction(db, reason)
 
     def cooldown(self, retry_after):
         seconds = retry_seconds(retry_after, self.clock())
         with self.lock, process_lock(self.state_file + '.lock'), closing(sqlite3.connect(self.state_file)) as db, db:
             db.execute('UPDATE state SET cooldown=MAX(cooldown, ?) WHERE id=1', (self.clock() + max(1, seconds),))
+
+    def access_error(self):
+        try:
+            with closing(sqlite3.connect(self.state_file, timeout=5)) as db:
+                blocked, cooldown = db.execute('SELECT blocked, cooldown FROM state WHERE id=1').fetchone()
+                if blocked:
+                    return 'GD 音乐台已拒绝访问，请确认限制解除后手动恢复'
+                if cooldown > self.clock():
+                    return 'GD 音乐台请求受限，请稍后重试'
+        except (OSError, sqlite3.Error):
+            return 'GD 音乐台请求队列不可用，请稍后重试'
+        return None
 
     def request(self, kind, *, background=False, **params):
         try:
@@ -92,7 +110,9 @@ class GDStudioClient:
             db.execute('DELETE FROM requests WHERE at <= ?', (now - 300,))
             count = db.execute('SELECT COUNT(*) FROM requests').fetchone()[0]
             if blocked:
-                return None, 'GD 音乐台已拒绝访问，请确认限制解除后手动恢复'
+                record = db.execute('SELECT reason FROM restriction WHERE id=1').fetchone()
+                reason = record[0] if record else '历史暂停记录（未记录触发原因）'
+                return None, 'GD 音乐台已拒绝访问：%s；请确认限制解除后手动恢复' % reason
             if cooldown > now:
                 return None, 'GD 音乐台请求受限，请稍后重试'
             if count >= (25 if background else 30 if kind == 'pic' else 45):
@@ -106,6 +126,7 @@ class GDStudioClient:
                 stage = 'http_%s' % response.status_code
                 if response.status_code == 403:
                     db.execute('UPDATE state SET blocked=1 WHERE id=1')
+                    self._record_restriction(db, 'GD 接口 %s 返回 HTTP 403' % kind)
                     return None, 'GD 音乐台拒绝访问，请确认限制解除后手动恢复'
                 if response.status_code == 429:
                     seconds = retry_seconds(response.headers.get('Retry-After', ''), self.clock())
@@ -119,11 +140,13 @@ class GDStudioClient:
                 except ValueError:
                     if any(word in body.lower() for word in ('captcha', '验证码', '人机验证')):
                         db.execute('UPDATE state SET blocked=1 WHERE id=1')
+                        self._record_restriction(db, 'GD 接口 %s 要求验证' % kind)
                         return None, 'GD 音乐台要求验证，请确认限制解除后手动恢复'
                     raise
                 message = ' '.join(str(payload.get(key, '') or '') for key in ('error', 'message', 'msg')) if isinstance(payload, dict) else ''
                 if any(word in message.lower() for word in ('captcha', '验证码', '人机验证')):
                     db.execute('UPDATE state SET blocked=1 WHERE id=1')
+                    self._record_restriction(db, 'GD 接口 %s 要求验证' % kind)
                     return None, 'GD 音乐台要求验证，请确认限制解除后手动恢复'
                 return payload, None
             except (requests.RequestException, ValueError) as exc:
