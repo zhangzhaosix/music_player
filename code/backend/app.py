@@ -1861,6 +1861,11 @@ def api_gd_cover(pic_id):
         return redirect(url)
 
 
+@app.route('/api/gd-status')
+def api_gd_status():
+    return jsonify({'server_error': gd_client.server_status()})
+
+
 @app.route('/api/gd-resume', methods=['POST'])
 def api_gd_resume():
     if not request.is_json or request.get_json(silent=True) != {'confirmed': True}:

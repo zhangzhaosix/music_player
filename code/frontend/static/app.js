@@ -966,6 +966,25 @@ async function resumeGD() {
     } catch { toast('恢复请求失败', true); }
 }
 
+async function updateGDServerStatus() {
+    try {
+        const response = await fetch('/api/gd-status', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
+        if (!response.ok) return;
+        const data = await response.json();
+        const notice = $('gdServerNotice');
+        if (!notice || typeof data.server_error !== 'boolean') return;
+        notice.hidden = !data.server_error;
+        if (!data.server_error) {
+            const message = 'GD 音乐台的服务器端出现问题，请稍后重试。';
+            if (state.searchError === message) state.searchError = '';
+            for (const [key, value] of Object.entries(state.searchSourceErrors)) {
+                if (value === message) delete state.searchSourceErrors[key];
+            }
+            syncSearchPreview();
+        }
+    } catch { /* Keep the last confirmed status when the local service cannot be reached. */ }
+}
+
 function renderSearchResults() {
     syncSearchPreview();
 }
@@ -3180,6 +3199,8 @@ function playPlaylist(plId) {
 }
 
 async function init() {
+    updateGDServerStatus();
+    setInterval(updateGDServerStatus, 20000);
     try { state.lyricsEffect = localStorage.getItem('shine_lyrics_effect') === 'clear' ? 'clear' : 'neon'; } catch { /* default neon */ }
     syncLyricsEffect();
     syncLibraryNavigation();

@@ -35,6 +35,7 @@
                     <button id="searchBtn" type="button">搜索</button>
                 </div>
                 <div class="source-spacing">数据来源：<a href="https://music.gdstudio.xyz/" target="_blank" rel="noopener noreferrer">GD 音乐台</a> · 网易云</div>
+                <div id="gdServerNotice" class="gd-server-notice" role="status" aria-live="polite" hidden>GD 音乐台的服务器端出现问题，请稍后重试。</div>
                 <button id="gdResumeBtn" class="btn-secondary search-retry" type="button" onclick="resumeGD()" hidden>确认限制已解除，恢复请求</button>
                 <div class="search-summary"><span id="searchStatus" role="status" aria-live="polite">搜索一首喜欢的歌吧</span><span id="searchResultCount">0 首</span></div>
                 <div id="searchMiniResults" class="search-mini-list song-list"><div class="empty-state"><p>今天，想听什么？</p><p class="hint">输入歌名或歌手，开始你的音乐时光。</p></div></div>
@@ -161,6 +162,6 @@
     <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplayback"></audio>
 
     <script src="/static/ambient.js?v=20261009-sky-vivid"></script>
-    <script src="/static/app.js?v=20261009-shine"></script>
+    <script src="/static/app.js?v=20261109-gd-status"></script>
 </body>
 </html>

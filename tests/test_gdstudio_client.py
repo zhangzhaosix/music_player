@@ -138,6 +138,33 @@ class GDStudioClientTests(unittest.TestCase):
         self.assertIsNotNone(self.client.request('search')[1])
         self.assertEqual(len(self.session.calls), 1)
 
+    def test_server_status_distinguishes_outage_timeout_and_recovery(self):
+        self.session.response = Response(521)
+        self.assertTrue(self.client.server_status())
+        self.assertEqual(len(self.session.calls), 1)
+        self.assertTrue(self.client.server_status())
+        self.assertEqual(len(self.session.calls), 1)
+        self.now += 60
+        def timeout(*args, **kwargs):
+            raise requests.Timeout('slow')
+        self.session.get = timeout
+        self.assertTrue(self.client.server_status())
+        self.now += 60
+        self.session.get = lambda *args, **kwargs: Response(body='{"error":"unavailable"}')
+        self.assertTrue(self.client.server_status())
+        self.now += 60
+        self.session.get = lambda *args, **kwargs: Response()
+        self.assertFalse(self.client.server_status())
+
+    def test_local_failure_and_access_restriction_are_not_server_failure(self):
+        def timeout(*args, **kwargs):
+            raise requests.Timeout('slow')
+        self.session.get = timeout
+        self.assertIsNone(self.client.server_status())
+        self.client.block('访问限制')
+        self.now += 60
+        self.assertIsNone(self.client.server_status())
+
 
 if __name__ == '__main__':
     unittest.main()

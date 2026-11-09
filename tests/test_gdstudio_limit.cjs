@@ -5,6 +5,26 @@ const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../code/frontend/static/app.js'), 'utf8');
 
+test('server notice appears for confirmed outage and clears on recovery', async () => {
+    const from = source.indexOf('async function updateGDServerStatus(');
+    const to = source.indexOf('function renderSearchResults(', from);
+    const notice = { hidden: true };
+    let result = true;
+    const state = { searchError: '', searchSourceErrors: {} };
+    const c = vm.createContext({
+        fetch: async () => ({ ok: true, json: async () => ({ server_error: result }) }),
+        AbortSignal, state, $: () => notice, syncSearchPreview() {},
+    });
+    vm.runInContext(source.slice(from, to), c);
+    await c.updateGDServerStatus();
+    assert.equal(notice.hidden, false);
+    state.searchSourceErrors.netease = 'GD 音乐台的服务器端出现问题，请稍后重试。';
+    result = false;
+    await c.updateGDServerStatus();
+    assert.equal(notice.hidden, true);
+    assert.deepEqual(state.searchSourceErrors, {});
+});
+
 test('a restricted source stops automatic playback recovery', () => {
     const from = source.indexOf('function setPlaybackError(');
     const to = source.indexOf('function retryCurrentPlayback(', from);

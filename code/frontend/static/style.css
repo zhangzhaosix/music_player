@@ -106,6 +106,7 @@ kbd { color: var(--text-muted); font: 12px var(--font); padding: 1px 5px; border
 .source-spacing { flex-shrink: 0; box-sizing: content-box; height: 1.5em; padding-block: 3px; border-block: 1px solid transparent; margin-top: 12px; font-size: 11px; }
 .search-summary { display: flex; justify-content: space-between; align-items: start; gap: 8px; margin: 16px 0 8px; color: var(--text-muted); font-size: 11px; }
 #searchStatus { min-width: 0; overflow-wrap: anywhere; }
+.gd-server-notice { color: var(--danger); margin: 8px 0; overflow-wrap: anywhere; }
 #searchResultCount { white-space: nowrap; }
 .search-mini-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .player-top { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art song" "art progress" "art controls"; column-gap: 14px; row-gap: 6px; min-width: 0; }
