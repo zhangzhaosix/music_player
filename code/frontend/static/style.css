@@ -349,6 +349,7 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
 }
 
 /* Search rows share library actions, with room for long names in the narrow panel. */
+.search-result-group { padding: 8px 4px 2px; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 .search-mini-list .song-item { padding: 8px 4px; gap: 6px; }
 .search-mini-list .song-info { min-width: 0; }
 .search-mini-list .song-title { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

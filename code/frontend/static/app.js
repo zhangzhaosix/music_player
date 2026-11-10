@@ -1005,8 +1005,17 @@ function syncSearchPreview() {
     const focused = results.contains(document.activeElement) ? document.activeElement : null;
     const focusedId = focused?.closest('.song-item')?.dataset.songId;
     const focusedClass = focused?.className?.split(' ')[0];
+    const searchTokens = normalizeSearchText(state.lastSearchKeyword || state.pendingKeyword).split(' ').filter(Boolean);
+    let previousMatch;
     results.innerHTML = state.searchResults.length
-        ? state.searchResults.map(song => buildSongItem(song, { hideSelectBtn: true, fromSearch: true })).join('')
+        ? state.searchResults.map(song => {
+            const text = normalizeSearchText(`${song.title || ''} ${song.artist || ''} ${song.album || ''}`);
+            const direct = searchTokens.every(token => text.includes(token));
+            const heading = searchTokens.length && direct !== previousMatch
+                ? `<h3 class="search-result-group">${direct ? '直接匹配' : '其他相关结果'}</h3>` : '';
+            previousMatch = direct;
+            return heading + buildSongItem(song, { hideSelectBtn: true, fromSearch: true });
+        }).join('')
         : state.isSearching ? '<div class="loading">正在寻找好声音…</div>'
         : `<div class="empty-state"><p>${escapeHtml(state.searchError || (partial ? '暂时无法连接搜索来源' : state.lastSearchKeyword ? '没有找到可播放的完整版' : '今天，想听什么？'))}</p><p class="hint">${state.lastSearchKeyword ? '试试其他歌名或歌手。' : '输入歌名或歌手，开始你的音乐时光。'}</p></div>`;
     if (!state.isSearching && (state.searchError || partial)) {

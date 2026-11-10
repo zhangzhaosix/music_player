@@ -105,3 +105,47 @@ test('a later search snapshot cannot reintroduce a recording already confirmed u
     assert.equal(c.state.searchResults.length, 1);
     assert.equal(c.state.searchResults[0].id, 'good');
 });
+
+test('search labels preserve result order across mixed matches and later pages', async () => {
+    const results = {
+        innerHTML: '', setAttribute() {}, contains: () => false,
+        insertAdjacentHTML(_position, html) { this.innerHTML += html; },
+    };
+    const nodes = { searchMiniResults: results, searchStatus: {}, searchResultCount: {} };
+    const requests = [];
+    const c = vm.createContext({
+        AbortSignal, URLSearchParams, SEARCH_SOURCE_LIMIT: 20,
+        state: { lastSearchKeyword: '晴天 周杰伦', searchResults: [
+            { id: 'title', title: '晴天', artist: '周杰伦' },
+            { id: 'partial', title: '晴天', artist: '其他歌手' },
+            { id: 'album', title: '其他', artist: '周杰伦', album: '晴天' },
+        ] },
+        $: id => nodes[id], document: { activeElement: null },
+        buildSongItem: song => `<song>${song.id}</song>`, escapeHtml: String,
+        searchHasMore: true, searchMoreLoading: false, searchPage: 1, toast() {},
+        fetch: async url => {
+            requests.push(url);
+            return { ok: true, json: async () => ({ results: [{ id: 'later', title: '遇见', artist: '孙燕姿' }], has_more: false }) };
+        },
+    });
+    load(c, 'function normalizeSearchText(', 'function hideUnavailableSong(');
+    load(c, 'async function loadMoreSearch(', 'async function resumeGD(');
+    load(c, 'function syncSearchPreview(', '// ─── 全部歌曲');
+    c.syncSearchPreview();
+    assert.match(results.innerHTML, /直接匹配<\/h3><song>title<\/song>.*其他相关结果<\/h3><song>partial<\/song>.*直接匹配<\/h3><song>album<\/song>/);
+
+    await c.loadMoreSearch();
+    assert.equal(new URLSearchParams(requests[0].split('?')[1]).get('page'), '2');
+    assert.match(results.innerHTML, /<song>album<\/song>.*其他相关结果<\/h3><song>later<\/song>/);
+    assert.deepEqual(Array.from(c.state.searchResults, song => song.id), ['title', 'partial', 'album', 'later']);
+
+    c.state.lastSearchKeyword = '周杰伦';
+    c.syncSearchPreview();
+    assert.match(results.innerHTML, /直接匹配<\/h3><song>title<\/song>/);
+    c.state.lastSearchKeyword = '无匹配';
+    c.syncSearchPreview();
+    assert.match(results.innerHTML, /^<h3 class="search-result-group">其他相关结果<\/h3>/);
+    c.state.searchResults = [];
+    c.syncSearchPreview();
+    assert.match(results.innerHTML, /没有找到可播放的完整版/);
+});
