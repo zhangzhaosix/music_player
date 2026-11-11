@@ -72,10 +72,42 @@ test('updating play icons preserves song cover images', () => {
     Object.defineProperty(button, 'innerHTML', { set() { throw new Error('cover was replaced'); } });
     const c = vm.createContext({
         document: { querySelectorAll(selector) { return selector === '.play-btn-item' ? [button] : []; } },
-        state: { currentSong: null }, ICON: { play: '<svg>play</svg>' },
+        state: { currentSong: null, queue: [] }, $: () => ({}), ICON: { play: '<svg>play</svg>' },
     });
     vm.runInContext(source.slice(from, to), c);
     c.updatePlayButtons();
     assert.equal(icon.outerHTML, '<svg>play</svg>');
     assert.equal(button.image, image);
+});
+
+test('locate button follows the current song after the first search queue is created', () => {
+    const song = { id: 'first', title: 'First' };
+    const nodes = { queueSummary: {}, locatePlayingBtn: {}, queueSongs: {} };
+    const state = { currentTab: 'queue', currentSong: null, queue: [], searchResults: [song], playHistory: [] };
+    const c = vm.createContext({
+        state, $: id => nodes[id], playModeBtn: { title: '列表循环' },
+        document: { querySelectorAll: () => [] }, buildSongItem: () => '', ICON: {},
+    });
+    vm.runInContext(source.slice(source.indexOf('function renderQueue('), source.indexOf('function showQueue(')), c);
+    vm.runInContext(source.slice(source.indexOf('function syncQueueForSong('), source.indexOf('async function getProxyUrl(')), c);
+    const from = source.indexOf('function updatePlayButtons(');
+    vm.runInContext(source.slice(from, source.indexOf('// ─── 下载', from)), c);
+
+    c.renderQueue();
+    assert.equal(nodes.locatePlayingBtn.disabled, true);
+    c.syncQueueForSong(song.id, { fromSearch: true });
+    assert.equal(nodes.locatePlayingBtn.disabled, true);
+    state.currentSong = song;
+    c.updatePlayButtons();
+    assert.equal(nodes.locatePlayingBtn.disabled, false);
+    state.isPlaying = true;
+    c.updatePlayButtons();
+    assert.equal(nodes.locatePlayingBtn.disabled, false);
+    state.currentSong = null;
+    c.updatePlayButtons();
+    assert.equal(nodes.locatePlayingBtn.disabled, true);
+    state.currentSong = song;
+    state.queue = [];
+    c.updatePlayButtons();
+    assert.equal(nodes.locatePlayingBtn.disabled, true);
 });

@@ -725,7 +725,6 @@ function focusMusicSearch() {
 
 function renderQueue() {
     $('queueSummary').textContent = `${state.queue.length} 首 · ${playModeBtn.title}`;
-    $('locatePlayingBtn').disabled = !state.currentSong || !state.queue.length;
     $('queueSongs').innerHTML = state.queue.length
         ? state.queue.map(song => buildSongItem(song, { hideSelectBtn: true })).join('')
         : '<div class="empty-state"><p>还没有播放队列</p><p class="hint">从收藏、搜索或歌单播放一首歌，就会出现在这里</p></div>';
@@ -2383,6 +2382,7 @@ function handleKeyboardShortcuts(e) {
 document.addEventListener('keydown', handleKeyboardShortcuts);
 
 function updatePlayButtons() {
+    $('locatePlayingBtn').disabled = !state.currentSong || !state.queue.length;
     const setIcon = (button, icon) => {
         const existing = button.querySelector?.('svg');
         if (existing) existing.outerHTML = icon;
