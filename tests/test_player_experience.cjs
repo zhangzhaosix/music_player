@@ -392,6 +392,33 @@ test('exact song titles rank above covers and artist-only matches', () => {
     assert.equal(combined[1].artist, 'Jay');
 });
 
+test('exact title and artist rank ahead of a title containing the whole query', () => {
+    const c = vm.createContext({});
+    load(c, 'function normalizeSearchText(', 'function filterSongs(');
+    load(c, 'function rankSearchResults(', "\ndocument.querySelectorAll('.tab').forEach");
+    const songs = [
+        { id: 'misleading', title: '小宇—蓝心羽', artist: '真的困了' },
+        { id: 'exact', title: '小宇', artist: '蓝心羽' },
+        { id: 'live', title: '小宇 (Live)', artist: '蓝心羽' },
+        { id: 'other', title: '其他', artist: '蓝心羽' },
+    ];
+    const ids = query => Array.from(c.rankSearchResults(songs, query), song => song.id);
+    assert.deepEqual(ids('小宇 蓝心羽'), ['exact', 'misleading', 'other', 'live']);
+    assert.equal(ids('蓝心羽 小宇')[0], 'exact');
+    assert.deepEqual(ids('小宇'), ['exact', 'misleading', 'live', 'other']);
+    assert.equal(ids('小宇 live 蓝心羽')[0], 'live');
+    const multiword = c.rankSearchResults([
+        { title: 'Some Song Artist Name', artist: 'Someone Else' },
+        { title: 'Some Song', artist: 'Artist Name' },
+    ], 'Some Song Artist Name');
+    assert.equal(multiword[0].artist, 'Artist Name');
+    const artistWithVersionText = c.rankSearchResults([
+        { title: 'Blue Sky Oliver', artist: 'Someone Else' },
+        { title: 'Blue Sky', artist: 'Oliver' },
+    ], 'Blue Sky Oliver');
+    assert.equal(artistWithVersionText[0].artist, 'Oliver');
+});
+
 test('local filtering matches combined title and artist without fetching online', () => {
     const nodes = { listFilterBar: { hidden: false }, listFilterCount: {} };
     const c = vm.createContext({ state: { currentTab: 'favorites', listFilters: { favorites: '小宇 张震岳' } }, $: id => nodes[id] });

@@ -665,6 +665,7 @@ function rankSearchResults(songs, keyword) {
         const title = normalizeSearchText(song.title), artist = normalizeSearchText(song.artist);
         const text = `${title} ${artist}`;
         let value = title === query ? 200 : title.includes(query) ? 100 : 0;
+        if (title && artist && (query === `${title} ${artist}` || query === `${artist} ${title}`)) value += 500;
         if (tokens.length > 1 && tokens.some(token => title === token)) value += 70;
         if (tokens.length > 1 && tokens.some(token => artist === token)) value += 80;
         value += tokens.filter(token => text.includes(token)).length * 20;
