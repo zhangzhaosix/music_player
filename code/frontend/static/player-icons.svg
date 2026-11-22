@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <symbol id="play" viewBox="0 0 24 24">
+    <path d="M8 5.8a.8.8 0 0 1 1.2-.7l9.5 6.2a.8.8 0 0 1 0 1.4l-9.5 6.2a.8.8 0 0 1-1.2-.7z"/>
+  </symbol>
+  <symbol id="pause" viewBox="0 0 24 24">
+    <rect x="6.5" y="5.5" width="3.5" height="13" rx="1"/>
+    <rect x="14" y="5.5" width="3.5" height="13" rx="1"/>
+  </symbol>
+  <symbol id="previous" viewBox="0 0 24 24">
+    <path d="M5 5v14m13-14L8 12l10 7z"/>
+  </symbol>
+  <symbol id="next" viewBox="0 0 24 24">
+    <path d="M19 5v14M6 5l10 7-10 7z"/>
+  </symbol>
+  <symbol id="heart" viewBox="0 0 24 24">
+    <path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 0 1 8-3.1 4.6 4.6 0 0 1 8 3.1z" transform="translate(0 .5)"/>
+  </symbol>
+  <symbol id="download" viewBox="0 0 24 24">
+    <path d="M12 3.5v11m-4-4 4 4 4-4M4.5 16v2.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V16"/>
+  </symbol>
+  <!-- Volume, headphones, info and back use or adapt volume-2, headphones, info and
+       chevron-left from https://github.com/feathericons/feather/tree/main/icons.
+       The MIT License (MIT)
+       Copyright (c) 2013-2023 Cole Bemis
+
+       Permission is hereby granted, free of charge, to any person obtaining a copy
+       of this software and associated documentation files (the "Software"), to deal
+       in the Software without restriction, including without limitation the rights
+       to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+       copies of the Software, and to permit persons to whom the Software is
+       furnished to do so, subject to the following conditions:
+
+       The above copyright notice and this permission notice shall be included in all
+       copies or substantial portions of the Software.
+
+       THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+       IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+       FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+       AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+       LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+       OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+       SOFTWARE. -->
+  <symbol id="volume" viewBox="0 0 24 24">
+    <path d="M11 5 6 9H2.5v6H6l5 4zM18.7 5.8a8.8 8.8 0 0 1 0 12.4m-3.5-9a4 4 0 0 1 0 5.6"/>
+  </symbol>
+  <symbol id="search" viewBox="0 0 24 24">
+    <circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.3 15.3 4.5 4.5"/>
+  </symbol>
+  <symbol id="sky" viewBox="0 0 24 24">
+    <path d="M10 3.5 11.9 8 16.5 10l-4.6 1.9L10 16.5l-2-4.6L3.5 10 8 8zM18 14v6m-3-3h6M19 4v4m-2-2h4"/>
+  </symbol>
+  <symbol id="headphones" viewBox="0 0 24 24">
+    <path d="M3 14v-3a9 9 0 0 1 18 0v3m0 1a2 2 0 0 0-2-2h-1a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2zM3 15a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+  </symbol>
+  <symbol id="library" viewBox="0 0 24 24">
+    <rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M8 9.5h8m-8 4h5"/>
+  </symbol>
+  <symbol id="queue" viewBox="0 0 24 24">
+    <path d="M4 6.5h16M4 11.5h16M4 16.5h8m4.5-2 3.5 2.5-3.5 2.5z"/>
+  </symbol>
+  <symbol id="repeat" viewBox="0 0 24 24">
+    <path d="m17 4 3 3-3 3M4 11V9a2 2 0 0 1 2-2h14M7 20l-3-3 3-3m13-1v2a2 2 0 0 1-2 2H4"/>
+  </symbol>
+  <symbol id="repeatOne" viewBox="0 0 24 24">
+    <path d="m17 4 3 3-3 3M4 11V9a2 2 0 0 1 2-2h14M7 20l-3-3 3-3m13-1v2a2 2 0 0 1-2 2H4m7-6 1-1v4"/>
+  </symbol>
+  <symbol id="shuffle" viewBox="0 0 24 24">
+    <path d="M4 6h2c4 0 8 12 12 12h2m-3-3 3 3-3 3M4 18h2c1.5 0 3-2 4-4m4-4c1.5-2.5 2.5-4 4-4h2m-3-3 3 3-3 3"/>
+  </symbol>
+  <symbol id="record" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/><path d="M8 8a5.7 5.7 0 0 1 4-1.7m4 9.7a5.7 5.7 0 0 1-4 1.7"/>
+  </symbol>
+  <symbol id="musicNote" viewBox="0 0 24 24">
+    <path d="M9 17V6l11-2.5V15M9 9l11-2.5"/><ellipse cx="6" cy="17" rx="3" ry="2"/><ellipse cx="17" cy="15" rx="3" ry="2"/>
+  </symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="trash" viewBox="0 0 24 24">
+    <path d="M4.5 7h15M9 7V4.5h6V7m-9 0 1 11.5a2 2 0 0 0 2 1.8h6a2 2 0 0 0 2-1.8L18 7m-8 4v5m4-5v5"/>
+  </symbol>
+  <symbol id="more" viewBox="0 0 24 24"><g fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.25"/><circle cx="12" cy="12" r="1.25"/><circle cx="19" cy="12" r="1.25"/></g></symbol>
+  <symbol id="loader" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8" opacity=".22"/><path d="M12 4a8 8 0 0 1 8 8"/>
+  </symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11.5v4.5m0-8h.01"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24">
+    <path d="M10.4 5.2a1.8 1.8 0 0 1 3.2 0l7.2 12.2a1.8 1.8 0 0 1-1.6 2.7H4.8a1.8 1.8 0 0 1-1.6-2.7zM12 9.5v4m0 3h.01"/>
+  </symbol>
+</svg>

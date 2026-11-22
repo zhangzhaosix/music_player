@@ -39,6 +39,34 @@ function playerFixture() {
 }
 const flush = () => new Promise(setImmediate);
 
+test('the player download button reflects a file saved after the current track was loaded', () => {
+    const song = { id: 'track', downloaded: false };
+    const cachedSong = { ...song };
+    const button = {};
+    const c = vm.createContext({
+        state: { currentSong: song },
+        downloadCurrentBtn: button,
+        findSongInState: id => id === cachedSong.id ? cachedSong : null,
+    });
+    load(c, 'function syncDownloadCurrentButton(', 'function updateBatchSelectionUI(');
+
+    c.syncDownloadCurrentButton();
+    assert.equal(button.disabled, false);
+    cachedSong.downloaded = true;
+    c.syncDownloadCurrentButton();
+    assert.equal(button.disabled, true);
+    assert.equal(button.title, '已保存到本地');
+
+    c.state.currentSong = { id: 'stream-only', download_allowed: false };
+    c.syncDownloadCurrentButton();
+    assert.equal(button.disabled, true);
+    assert.equal(button.title, '此来源仅供在线播放');
+
+    c.state.currentSong = { id: 'another-track' };
+    c.syncDownloadCurrentButton();
+    assert.equal(button.disabled, false);
+});
+
 function automaticFixture() {
     const c = playerFixture();
     c.state.playMode = 'sequence';

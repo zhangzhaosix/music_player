@@ -46,6 +46,7 @@ const searchInput = $('searchInput');
 const searchBtn = $('searchBtn');
 const listFilterInput = $('listFilterInput');
 const playBtn = $('playBtn');
+const playerPlayIcon = playBtn.querySelector('use');
 const prevBtn = $('prevBtn');
 const nextBtn = $('nextBtn');
 const playModeBtn = $('playModeBtn');
@@ -69,6 +70,7 @@ const libraryPanel = $('libraryPanel');
 const vinylState = $('vinylState');
 const lyricsList = $('lyricsList');
 const favoriteCurrentBtn = $('favoriteCurrentBtn');
+const downloadCurrentBtn = $('downloadCurrentBtn');
 const deleteConfirmModal = $('deleteConfirmModal');
 const deleteConfirmTitle = $('deleteConfirmTitle');
 const deleteConfirmMessage = $('deleteConfirmMessage');
@@ -101,42 +103,21 @@ const LEVELING_MAX_GAIN = Math.pow(10, 6 / 20);
 const PLAYABLE_INFO_TTL_MS = 5 * 60 * 1000;
 
 // ─── SVG 图标 ──────────────────────────────────────────
-const ICON = {
-    play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 10 7-10 7z" fill="currentColor" stroke="none"/></svg>',
-    pause: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" stroke-width="3"/></svg>',
-    heart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 018-3.1 4.6 4.6 0 018 3.1z" fill="currentColor"/></svg>',
-    heartOutline: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.8 8.6c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10a4.6 4.6 0 018-3.1 4.6 4.6 0 018 3.1z"/></svg>',
-    download: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M5 16v4h14v-4"/></svg>',
-    downloadDone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 4 4 7-8M5 16v4h14v-4"/></svg>',
-    plus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>',
-    trash: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v5m4-5v5"/></svg>',
-    minus: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>',
-    prev: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5v14m13-14L8 12l10 7z"/></svg>',
-    next: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 5v14M6 5l10 7-10 7z"/></svg>',
-    shuffle: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h2c4 0 8 12 12 12h2m-4-4 4 4-4 3M4 18h2c1.5 0 3-2 4-4m4-4c1.5-2.5 2.5-4 4-4h2m-4-3 4 3-4 4"/></svg>',
-    repeat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 4 4-4 4M4 11V9a2 2 0 012-2h14M8 21l-4-4 4-4m12 0v2a2 2 0 01-2 2H4"/></svg>',
-    repeatOne: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 3 4 4-4 3M4 11V9a2 2 0 012-2h14M8 21l-4-4 4-3m12-1v2a2 2 0 01-2 2H4m7-6 1-1v4"/></svg>',
-    musicNote: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17V5l11-2v12M9 8l11-2"/><ellipse cx="6" cy="17" rx="3" ry="2"/><ellipse cx="17" cy="15" rx="3" ry="2"/></svg>',
-    check: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>',
-    more: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
-};
-
-function renderPlaylistFolderIcon(kind = 'card') {
-    return `<span class="playlist-folder-icon playlist-folder-icon-${kind}" aria-hidden="true">
-        <svg viewBox="0 0 64 64"><rect x="5" y="5" width="54" height="54" rx="6" fill="var(--accent-soft)" stroke="none"/>
-        <circle cx="32" cy="32" r="21"/><circle cx="32" cy="32" r="14" opacity="0.45"/>
-        <circle cx="32" cy="32" r="6" fill="currentColor" stroke="none"/>
-        <circle cx="32" cy="32" r="2" fill="var(--surface)" stroke="none"/></svg>
-    </span>`;
-}
+const ICON_SPRITE = '/static/player-icons.svg?v=20261122-shine';
+const ICON = Object.fromEntries([
+    'play', 'pause', 'heart', 'download', 'repeat', 'repeatOne', 'shuffle',
+    'plus', 'minus', 'trash', 'more', 'back', 'check', 'record', 'musicNote',
+    'queue', 'loader', 'info', 'alert',
+].map(name => [name, `<svg class="icon" aria-hidden="true"><use href="${ICON_SPRITE}#${name}"/></svg>`]));
 
 // ─── 工具栏 ─────────────────────────────────────────────
 
-function toast(msg, isError = false) {
+function toast(msg, isError = false, symbol = 'info') {
     document.querySelectorAll('.toast').forEach(el => el.remove());
     const el = document.createElement('div');
     el.className = `toast${isError ? ' error-toast' : ''}`;
-    el.textContent = msg;
+    el.innerHTML = ICON[isError ? 'alert' : symbol];
+    el.append(document.createTextNode(msg));
     el.setAttribute('role', isError ? 'alert' : 'status');
     document.body.appendChild(el);
     requestAnimationFrame(() => el.classList.add('show'));
@@ -293,12 +274,14 @@ function syncImmersivePlayerUI() {
 
     document.body.classList.toggle('is-playing', state.isPlaying);
     if (vinylState) vinylState.textContent = waitingToRetry ? '等待自动重试' : state.playbackError ? '播放遇到问题' : state.isLoading ? '正在连接…' : state.isBuffering ? '正在缓冲…' : (state.isPlaying ? '正在播放' : (state.currentSong ? '已暂停' : '等待播放'));
-    $('playbackNotice').hidden = !state.playbackError && !state.isBuffering;
+    const playbackNotice = $('playbackNotice');
+    playbackNotice.hidden = !state.playbackError && !state.isBuffering;
+    playbackNotice.classList.toggle('has-error', Boolean(state.playbackError));
     $('playbackMessage').textContent = state.playbackError || '正在缓冲音频，请稍候…';
     $('retryPlaybackBtn').hidden = !state.playbackError;
-    $('downloadCurrentBtn').disabled = !song || !!song.downloaded || song.download_allowed === false;
-    $('downloadCurrentBtn').title = song?.download_allowed === false ? '此来源仅供在线播放' : '下载当前歌曲';
+    syncDownloadCurrentButton();
     playBtn.title = waitingToRetry ? '取消自动重试' : state.isLoading ? '正在连接音频' : (state.isPlaying ? '暂停' : (song ? '播放' : '选歌播放'));
+    playerPlayIcon.setAttribute('href', `${ICON_SPRITE}#${state.isPlaying || waitingToRetry ? 'pause' : 'play'}`);
     playBtn.setAttribute('aria-label', playBtn.title);
     playBtn.disabled = state.isLoading;
     playBtn.setAttribute('aria-busy', String(state.isLoading));
@@ -341,7 +324,7 @@ function toggleLyricsEffect() {
 }
 
 $('lyricsEffectBtn').addEventListener('click', toggleLyricsEffect);
-$('downloadCurrentBtn').addEventListener('click', () => {
+downloadCurrentBtn.addEventListener('click', () => {
     if (state.currentSong) void downloadSong(state.currentSong.id);
 });
 
@@ -376,6 +359,7 @@ function syncCachedSongFlags() {
     }
 
     syncFavoriteCurrentButton();
+    syncDownloadCurrentButton();
 }
 
 function qjjlbSongIdentityKeyFromUrl(url) {
@@ -451,11 +435,17 @@ function syncFavoriteCurrentButton() {
     if (!favoriteCurrentBtn) return;
 
     const favorited = Boolean(state.currentSong && isSongFavorited(state.currentSong));
-    favoriteCurrentBtn.classList.toggle('favorited', favorited);
-    favoriteCurrentBtn.innerHTML = favorited ? ICON.heart : ICON.heartOutline;
     favoriteCurrentBtn.title = favorited ? '取消收藏当前歌曲' : '收藏当前歌曲';
     favoriteCurrentBtn.setAttribute('aria-label', favoriteCurrentBtn.title);
     favoriteCurrentBtn.setAttribute('aria-pressed', favorited ? 'true' : 'false');
+}
+
+function syncDownloadCurrentButton() {
+    const song = state.currentSong;
+    const downloaded = song && (song.downloaded || findSongInState(song.id)?.downloaded);
+    const streamingOnly = song?.download_allowed === false;
+    downloadCurrentBtn.disabled = !song || Boolean(downloaded) || streamingOnly;
+    downloadCurrentBtn.title = downloaded ? '已保存到本地' : streamingOnly ? '此来源仅供在线播放' : '下载当前歌曲';
 }
 
 function updateBatchSelectionUI() {
@@ -702,7 +692,6 @@ document.querySelectorAll('.tab').forEach(tab => {
 });
 
 if (queueBtn) queueBtn.addEventListener('click', showQueue);
-$('quickSearchBtn').addEventListener('click', focusMusicSearch);
 ['manageFavoritesBtn', 'manageDownloadsBtn'].forEach(id => {
     $(id).addEventListener('click', () => {
         if (state.isDeletingDownloads) return;
@@ -727,7 +716,7 @@ function renderQueue() {
     $('queueSummary').textContent = `${state.queue.length} 首 · ${playModeBtn.title}`;
     $('queueSongs').innerHTML = state.queue.length
         ? state.queue.map(song => buildSongItem(song, { hideSelectBtn: true })).join('')
-        : '<div class="empty-state"><p>还没有播放队列</p><p class="hint">从收藏、搜索或歌单播放一首歌，就会出现在这里</p></div>';
+        : `<div class="empty-state">${ICON.queue}<p>还没有播放队列</p><p class="hint">从收藏、搜索或歌单播放一首歌，就会出现在这里</p></div>`;
     updatePlayButtons();
 }
 
@@ -1001,7 +990,7 @@ function syncSearchPreview() {
     if ($('gdResumeBtn') && /拒绝访问|要求验证/.test(sourceMessage)) $('gdResumeBtn').hidden = false;
     status.textContent = state.isSearching
         ? (state.searchResults.length ? '正在搜索…' : '正在搜索音源…')
-        : state.searchError || (partial ? sourceMessage : state.lastSearchKeyword ? `“${state.lastSearchKeyword}”的搜索结果` : '搜索一首喜欢的歌吧');
+        : state.searchError || (partial ? sourceMessage : state.lastSearchKeyword ? `“${state.lastSearchKeyword}”的搜索结果` : '搜索结果');
     const focused = results.contains(document.activeElement) ? document.activeElement : null;
     const focusedId = focused?.closest('.song-item')?.dataset.songId;
     const focusedClass = focused?.className?.split(' ')[0];
@@ -1016,8 +1005,8 @@ function syncSearchPreview() {
             previousMatch = direct;
             return heading + buildSongItem(song, { hideSelectBtn: true, fromSearch: true });
         }).join('')
-        : state.isSearching ? '<div class="loading">正在寻找好声音…</div>'
-        : `<div class="empty-state"><p>${escapeHtml(state.searchError || (partial ? '暂时无法连接搜索来源' : state.lastSearchKeyword ? '没有找到可播放的完整版' : '今天，想听什么？'))}</p><p class="hint">${state.lastSearchKeyword ? '试试其他歌名或歌手。' : '输入歌名或歌手，开始你的音乐时光。'}</p></div>`;
+        : state.isSearching ? `<div class="loading">${ICON.loader}正在搜索…</div>`
+        : `<div class="empty-state">${state.searchError || partial ? ICON.alert : ICON.musicNote}<p>${escapeHtml(state.searchError || (partial ? '暂时无法连接搜索来源' : state.lastSearchKeyword ? '没有找到可播放的完整版' : '输入歌名或歌手开始搜索。'))}</p>${state.lastSearchKeyword && !state.searchError && !partial ? '<p class="hint">试试其他歌名或歌手。</p>' : ''}</div>`;
     if (!state.isSearching && (state.searchError || partial)) {
         results.insertAdjacentHTML('beforeend', '<button class="btn-secondary search-retry" onclick="doSearch()">重新搜索</button>');
     }
@@ -1029,7 +1018,7 @@ function syncSearchPreview() {
 
 async function loadAllSongs() {
     const container = $('allSongs');
-    container.innerHTML = '<div class="loading">加载中</div>';
+    container.innerHTML = `<div class="loading">${ICON.loader}加载中</div>`;
     clearBatchSelection();
 
     try {
@@ -1072,12 +1061,12 @@ async function loadAllSongs() {
         }
 
         if (!all.length) {
-            container.innerHTML = '<div class="empty-state"><p>还没有歌曲，去搜索添加吧！</p></div>';
+            container.innerHTML = `<div class="empty-state">${ICON.musicNote}<p>还没有歌曲，去搜索添加吧！</p></div>`;
             return;
         }
         container.innerHTML = all.map(song => buildSongItem(song)).join('');
     } catch (err) {
-        container.innerHTML = '<div class="empty-state"><p>加载失败</p></div>';
+        container.innerHTML = `<div class="empty-state">${ICON.alert}<p>加载失败</p></div>`;
     }
 }
 
@@ -1085,7 +1074,7 @@ async function loadAllSongs() {
 
 async function loadLocalMusic() {
     const container = $('localSongs');
-    container.innerHTML = '<div class="loading">加载中</div>';
+    container.innerHTML = `<div class="loading">${ICON.loader}加载中</div>`;
     clearBatchSelection();
 
     try {
@@ -1094,14 +1083,14 @@ async function loadLocalMusic() {
         state.localMusic = data.music || [];
 
         if (!state.localMusic.length) {
-            container.innerHTML = '<div class="empty-state"><p>本地还没有歌曲</p><p class="hint">搜索歌曲后，点击下载按钮保存到本地</p></div>';
+            container.innerHTML = `<div class="empty-state">${ICON.musicNote}<p>本地还没有歌曲</p><p class="hint">搜索歌曲后，点击下载按钮保存到本地</p></div>`;
             return;
         }
         container.innerHTML = state.localMusic.map(song => buildSongItem(song)).join('');
         updateBatchSelectionUI();
         syncBatchToolbar();
     } catch (err) {
-        container.innerHTML = '<div class="empty-state"><p>加载失败</p></div>';
+        container.innerHTML = `<div class="empty-state">${ICON.alert}<p>加载失败</p></div>`;
     }
 }
 
@@ -1109,7 +1098,7 @@ async function loadLocalMusic() {
 
 async function loadFavorites() {
     const container = $('favSongs');
-    if (!container.querySelector('.song-item')) container.innerHTML = '<div class="loading">加载中</div>';
+    if (!container.querySelector('.song-item')) container.innerHTML = `<div class="loading">${ICON.loader}加载中</div>`;
 
     try {
         const data = await fetchJSON('/api/favorites');
@@ -1117,7 +1106,7 @@ async function loadFavorites() {
         syncCachedSongFlags();
         renderFavorites();
     } catch (err) {
-        container.innerHTML = '<div class="empty-state" role="alert"><p>收藏加载失败，已有收藏不会丢失</p><button class="btn-secondary" onclick="loadFavorites()">重新加载</button></div>';
+        container.innerHTML = `<div class="empty-state" role="alert">${ICON.alert}<p>收藏加载失败，已有收藏不会丢失</p><button class="btn-secondary" onclick="loadFavorites()">重新加载</button></div>`;
     } finally {
         syncBatchToolbar();
     }
@@ -1126,8 +1115,8 @@ async function loadFavorites() {
 function renderFavorites() {
     const songs = filterSongs(state.favorites);
     $('favSongs').innerHTML = songs.length ? songs.map(fav => buildSongItem({ ...fav, favorited: true })).join('')
-        : state.favorites.length ? '<div class="empty-state"><p>没有匹配的收藏，试试其他歌名或歌手</p></div>'
-        : '<div class="empty-state"><p>还没有收藏的歌曲</p><p class="hint">搜索喜欢的歌曲，点击爱心即可收藏</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button></div>';
+        : state.favorites.length ? `<div class="empty-state">${ICON.musicNote}<p>没有匹配的收藏，试试其他歌名或歌手</p></div>`
+        : `<div class="empty-state">${ICON.musicNote}<p>还没有收藏的歌曲</p><p class="hint">搜索喜欢的歌曲，点击爱心即可收藏</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button></div>`;
     updateBatchSelectionUI();
     syncBatchToolbar();
 }
@@ -1136,7 +1125,7 @@ function renderFavorites() {
 
 async function loadDownloads() {
     const container = $('downloadSongs');
-    container.innerHTML = '<div class="loading">加载中</div>';
+    container.innerHTML = `<div class="loading">${ICON.loader}加载中</div>`;
 
     try {
         const [musicData, favData] = await Promise.all([
@@ -1154,7 +1143,7 @@ async function loadDownloads() {
         if (state.currentTab === 'downloads') renderDownloads();
         return true;
     } catch (err) {
-        container.innerHTML = '<div class="empty-state" role="alert"><p>下载列表加载失败</p><button class="btn-secondary" onclick="loadDownloads()">重新加载</button></div>';
+        container.innerHTML = `<div class="empty-state" role="alert">${ICON.alert}<p>下载列表加载失败</p><button class="btn-secondary" onclick="loadDownloads()">重新加载</button></div>`;
         return false;
     } finally {
         syncBatchToolbar();
@@ -1164,8 +1153,8 @@ async function loadDownloads() {
 function renderDownloads() {
     const songs = filterSongs(state.localMusic);
     $('downloadSongs').innerHTML = songs.length ? songs.map(song => buildSongItem(song)).join('')
-        : state.localMusic.length ? '<div class="empty-state"><p>没有匹配的下载歌曲</p></div>'
-        : '<div class="empty-state"><p>还没有下载过歌曲</p><p class="hint">在歌曲的更多操作中选择「下载到本地」</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button></div>';
+        : state.localMusic.length ? `<div class="empty-state">${ICON.musicNote}<p>没有匹配的下载歌曲</p></div>`
+        : `<div class="empty-state">${ICON.musicNote}<p>还没有下载过歌曲</p><p class="hint">在歌曲的更多操作中选择「下载到本地」</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button></div>`;
     updateBatchSelectionUI();
     syncBatchToolbar();
 }
@@ -1182,8 +1171,6 @@ function buildSongItem(song, options = {}) {
     const hideSelectBtn = !!options.hideSelectBtn;
     const playIcon = isPlaying && state.isPlaying ? ICON.pause : ICON.play;
     const favorited = isSongFavorited(song);
-    const favClass = favorited ? 'favorited' : '';
-    const favIcon = favorited ? ICON.heart : ICON.heartOutline;
 
     const playAction = `playSong('${song.id}'${options.fromSearch ? ', { fromSearch: true }' : ''})`;
     const playingClass = isPlaying ? 'playing-now' : '';
@@ -1196,7 +1183,7 @@ function buildSongItem(song, options = {}) {
                 <span class="song-artist" title="${escapeHtml(songDescription(song))}">${escapeHtml(songDescription(song))}</span>
             </button>
             <div class="song-actions">
-                <button class="fav-btn ${favClass}" onclick="toggleFavorite('${song.id}')" title="${favorited ? '取消收藏' : '收藏'}" aria-label="${favorited ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}">${favIcon}</button>
+                <button class="fav-btn" onclick="toggleFavorite('${song.id}')" title="${favorited ? '取消收藏' : '收藏'}" aria-label="${favorited ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorited}">${ICON.heart}</button>
                 <button class="more-btn" popovertarget="songActionsPopover" onclick="prepareSongActions('${song.id}', '${options.playlistId || ''}', this)" title="更多操作" aria-label="更多操作 ${escapeHtml(song.title)}">${ICON.more}</button>
             </div>
         </div>`;
@@ -1264,7 +1251,6 @@ function releaseAudioIfDeletingFile(filename) {
     state.isPlaying = false;
     state.isLoading = false;
     state.currentSong = null;
-    playBtn.innerHTML = ICON.play;
     equalizer.classList.add('paused');
     updatePlayButtons();
     syncImmersivePlayerUI();
@@ -1446,7 +1432,6 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playT
 
     if (!shouldPlay) {
         state.isPlaying = false;
-        playBtn.innerHTML = ICON.play;
         equalizer.classList.add('paused');
         updatePlayButtons();
         syncImmersivePlayerUI();
@@ -1469,7 +1454,6 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playT
         })]);
         if (playToken !== playbackState.playToken) return false;
         state.isPlaying = true;
-        playBtn.innerHTML = ICON.pause;
         equalizer.classList.remove('paused');
         updatePlayButtons();
         syncImmersivePlayerUI();
@@ -1478,7 +1462,6 @@ async function startAudioPlayback({ song, shouldPlay, seekTime, saveState, playT
     } catch {
         if (playToken !== playbackState.playToken) return false;
         state.isPlaying = false;
-        playBtn.innerHTML = ICON.play;
         equalizer.classList.add('paused');
         updatePlayButtons();
         syncImmersivePlayerUI();
@@ -1587,7 +1570,6 @@ function scheduleAutomaticPlaybackRetry() {
         }, 5000);
     }
     state.playbackError = `播放失败，5 秒后重试（${recovery.retries}/3）。`;
-    playBtn.innerHTML = ICON.pause;
     syncImmersivePlayerUI();
 }
 
@@ -1661,7 +1643,6 @@ async function playSong(songId, { keepQueue = false, force = false, seekTime = 0
         state.isBuffering = false;
         state.playbackError = '';
         state.resumeTime = seekTime;
-        playBtn.innerHTML = ICON.play;
         syncImmersivePlayerUI();
 
         let hydrated = await loadOnlineSongInfo(song, { playbackOnly: true, silent: automatic, signal: controller.signal, refresh: force, deadline: playbackState.startupDeadline });
@@ -2066,7 +2047,6 @@ function togglePlayPause() {
     if (playbackState.autoAdvance?.timer != null) {
         cancelAutomaticPlayback();
         state.playbackError = '已取消自动重试，可手动重试播放。';
-        playBtn.innerHTML = ICON.play;
         syncImmersivePlayerUI();
         savePlaybackState();
         return;
@@ -2092,7 +2072,6 @@ function togglePlayPause() {
     } else {
         audio.pause();
         state.isPlaying = false;
-        playBtn.innerHTML = ICON.play;
         equalizer.classList.add('paused');
         updatePlayButtons();
         syncImmersivePlayerUI();
@@ -2107,7 +2086,6 @@ function setPlaybackError(message) {
     state.isPlaying = false;
     state.isLoading = false;
     state.isBuffering = false;
-    playBtn.innerHTML = ICON.play;
     equalizer.classList.add('paused');
     updatePlayButtons();
     syncImmersivePlayerUI();
@@ -2137,7 +2115,6 @@ audio.addEventListener('playing', () => {
     state.isPlaying = true;
     state.isBuffering = false;
     state.playbackError = '';
-    playBtn.innerHTML = ICON.pause;
     updatePlayButtons();
     syncImmersivePlayerUI();
 });
@@ -2146,7 +2123,6 @@ audio.addEventListener('pause', () => {
     if (state.isLoading) return;
     state.isPlaying = false;
     state.isBuffering = false;
-    playBtn.innerHTML = ICON.play;
     updatePlayButtons();
     syncImmersivePlayerUI();
 });
@@ -2171,7 +2147,6 @@ document.addEventListener('contextmenu', e => {
 
 audio.addEventListener('ended', () => {
     state.isPlaying = false;
-    playBtn.innerHTML = ICON.play;
     equalizer.classList.add('paused');
     progressBar.value = 0;
     updateRangeFill(progressBar);
@@ -2451,7 +2426,7 @@ async function downloadSong(songId, options = {}) {
         });
         const data = await resp.json();
         if (data.success) {
-            if (!quiet) toast('下载完成 ✅');
+            if (!quiet) toast('下载完成', false, 'check');
             if (data.filename) song.filename = data.filename;
             song.downloaded = true;
             if (!quiet) {
@@ -2555,7 +2530,7 @@ async function toggleFavorite(songId) {
                 });
             }
             song.favorited = true;
-            toast('已收藏 ♥');
+            toast('已收藏', false, 'check');
         } catch {
             toast('操作失败', true);
         }
@@ -2625,7 +2600,7 @@ $('confirmPlaylistBtn').addEventListener('click', async () => {
             body: JSON.stringify({ name }),
         });
         if (data.success) {
-            toast('歌单已创建');
+            toast('歌单已创建', false, 'check');
             dismissDialog($('playlistModal'));
             await loadPlaylists();
         }
@@ -2667,7 +2642,7 @@ async function removeSongFromPlaylist(plId, songId) {
             body: JSON.stringify({ remove_song: songId }),
         });
         if (data.success) {
-            toast('已从歌单移除');
+            toast('已从歌单移除', false, 'check');
             await loadPlaylists();
             showPlaylistDetail(plId);
         } else {
@@ -2697,12 +2672,12 @@ function showAddToPlaylist(songIdOrIds) {
     `).join('');
 
     if (!state.playlists.length) {
-        optionsHtml = '<div style="padding:10px 12px;font-size:13px;color:#999">还没有歌单，先去创建</div>';
+        optionsHtml = `<div class="notice-with-icon playlist-picker-empty">${ICON.info}还没有歌单，先去创建</div>`;
     }
 
     overlay.innerHTML = `
         <div class="add-to-pl-panel" role="dialog" aria-modal="true" aria-label="添加歌曲到歌单">
-            <h3>添加到歌单</h3>
+            <h3 class="notice-with-icon">${ICON.plus}添加到歌单</h3>
             ${optionsHtml}
             <button class="btn-secondary" onclick="dismissDialog(this.closest('.add-to-pl-overlay'))">取消</button>
         </div>
@@ -2880,11 +2855,11 @@ async function batchDeleteLocalSongs() {
 function renderPlaylistsTab() {
     const container = $('playlistsGrid');
     if (state.playlistsError) {
-        container.innerHTML = `<div class="empty-state" role="alert"><p>${escapeHtml(state.playlistsError)}</p><button class="btn-secondary" onclick="loadPlaylists()">重新加载</button></div>`;
+        container.innerHTML = `<div class="empty-state" role="alert">${ICON.alert}<p>${escapeHtml(state.playlistsError)}</p><button class="btn-secondary" onclick="loadPlaylists()">重新加载</button></div>`;
         return;
     }
     if (!state.playlists.length) {
-        container.innerHTML = '<div class="empty-state"><p>还没有创建歌单</p><p class="hint">点击上方「新建歌单」，收好同一种心情</p></div>';
+        container.innerHTML = `<div class="empty-state">${ICON.record}<p>还没有创建歌单</p><p class="hint">点击上方「新建歌单」，收好同一种心情</p></div>`;
         return;
     }
     container.innerHTML = state.playlists.map(pl => {
@@ -2892,7 +2867,7 @@ function renderPlaylistsTab() {
         return `
             <div class="playlist-card">
                 <button type="button" class="pl-card-top" onclick="showPlaylistDetail('${pl.id}')">
-                    <div class="pl-card-icon">${renderPlaylistFolderIcon('card')}</div>
+                    <div class="pl-card-icon">${ICON.record}</div>
                     <div class="pl-card-name" title="${escapeHtml(pl.name)}">${escapeHtml(pl.name)}</div>
                     <div class="pl-card-count">${count} 首</div>
                 </button>
@@ -3100,7 +3075,7 @@ async function showPlaylistDetail(plId) {
     const header = document.querySelector('.playlist-detail-header');
     header.innerHTML = `
         <div class="playlist-detail-main">
-            <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">← 返回</button>
+            <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">${ICON.back}返回</button>
             <div class="playlist-detail-info">
                 <h2 title="${escapeHtml(pl.name)}">${escapeHtml(pl.name)}</h2>
                 <span class="song-count">${pl.songs.length} 首</span>
@@ -3120,13 +3095,13 @@ function renderPlaylistSongs(pl) {
     if (!pl) return;
     const container = $('playlistDetailSongs');
     if (!pl.songs.length) {
-        container.innerHTML = '<div class="empty-state"><p>歌单还没有歌曲</p><p class="hint">点击「添加歌曲」，从收藏中挑选</p></div>';
+        container.innerHTML = `<div class="empty-state">${ICON.musicNote}<p>歌单还没有歌曲</p><p class="hint">点击「添加歌曲」，从收藏中挑选</p></div>`;
         return;
     }
 
     const detailSongs = filterSongs(pl.songs.map(normalizePlaylistSong).filter(song => song && song.id));
     container.innerHTML = detailSongs.length ? detailSongs.map(song => buildSongItem(song, { playlistId: pl.id, hideSelectBtn: true })).join('')
-        : '<div class="empty-state"><p>没有匹配的歌单歌曲</p></div>';
+        : `<div class="empty-state">${ICON.musicNote}<p>没有匹配的歌单歌曲</p></div>`;
 }
 
 async function addSongToPlaylist(plId) {
@@ -3147,7 +3122,7 @@ async function addSongToPlaylist(plId) {
             body: JSON.stringify({ songs: nextSongs }),
         });
         if (data.success) {
-            toast('已添加到歌单');
+            toast('已添加到歌单', false, 'check');
             if ($('addToPlOverlay')) dismissDialog($('addToPlOverlay'));
             await loadPlaylists();
         }
@@ -3216,10 +3191,6 @@ async function init() {
     syncLibraryNavigation();
     renderSearchResults();
     // 初始化按钮图标
-    prevBtn.innerHTML = ICON.prev;
-    nextBtn.innerHTML = ICON.next;
-    playBtn.innerHTML = ICON.play;
-    playBtn.classList.add('play-btn');
     playModeBtn.innerHTML = ICON.repeat;
     playModeBtn.title = '列表循环';
     equalizer.classList.add('paused');

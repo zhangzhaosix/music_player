@@ -36,7 +36,11 @@ function fixture({ saved = null, reduced = false, mobile = false, storageFails =
             setItem(...args) { if (storageFails) throw Error('blocked'); writes.push(args); } },
         setTimeout(fn, delay) { const id = ++timerId; timers.set(id, { fn, delay }); return id; },
         clearTimeout: id => timers.delete(id),
-        MutationObserver: class { constructor(fn) { this.fn = fn; observers.push(this); } observe() {} },
+        MutationObserver: class {
+            constructor(fn) { this.fn = fn; this.connected = false; observers.push(this); }
+            observe() { this.connected = true; }
+            disconnect() { this.connected = false; }
+        },
     });
     return { sky, button, body, modal, document, media, timers, observers, writes,
         tick() { const [id, { fn }] = timers.entries().next().value; timers.delete(id); fn(); },
@@ -55,6 +59,8 @@ test('bounded meteor pair is reused and stopping cancels the delayed companion a
     assert.ok(f.sky.meteor.classList.contains('is-active'));
     f.button.fire('click');
     assert.equal(f.timers.size, 0);
+    assert.ok(f.observers.every(observer => !observer.connected));
+    assert.equal(f.sky.classList.contains('is-moving'), false);
     assert.equal(f.sky.meteor.classList.contains('is-active'), false);
     assert.equal(f.sky.meteors[1].classList.contains('is-active'), false);
     assert.deepEqual(f.writes, [['shine_ambient_motion', 'off']]);
@@ -70,7 +76,7 @@ test('modal and hidden page stop timers; only an available page resumes; repeate
     f.document.hidden = false; f.document.listeners.visibilitychange();
     f.document.listeners.visibilitychange();
     assert.equal(f.timers.size, 1);
-    assert.equal(f.body.classList.contains('ambient-paused'), false);
+    assert.equal(f.sky.classList.contains('is-moving'), true);
     f.document.openPopover = true; f.document.listeners.toggle();
     assert.equal(f.timers.size, 0);
     f.document.openPopover = false; f.document.listeners.toggle();
@@ -84,7 +90,9 @@ test('saved preference and system reduced motion both retain stars without sched
     for (const options of [{ saved: 'off' }, { reduced: true }]) {
         const f = fixture(options);
         assert.equal(f.timers.size, 0);
-        assert.equal(f.sky.children.length, 96);
+        assert.deepEqual(f.sky.children.map(layer => layer.children.length), [58, 30, 14]);
+        assert.ok(f.observers.every(observer => !observer.connected));
+        assert.equal(f.sky.classList.contains('is-moving'), false);
         assert.equal(f.button.attributes['aria-pressed'], 'false');
     }
     const f = fixture();
@@ -94,13 +102,14 @@ test('saved preference and system reduced motion both retain stars without sched
     assert.equal(f.timers.size, 0);
     reduced.matches = false; reduced.fire('change');
     assert.equal(f.timers.size, 1);
+    assert.ok(f.observers.every(observer => observer.connected));
 });
 
 test('blocked storage remains usable and mobile schedule keeps the slower interval', () => {
     const f = fixture({ storageFails: true, mobile: true });
     f.tick();
     const delay = [...f.timers.values()][0].delay;
-    assert.ok(delay >= 6000 && delay <= 10000);
+    assert.ok(delay >= 19000 && delay <= 33000);
     const firstPath = f.sky.meteor.style.cssText;
     f.sky.meteor.fire('animationend'); f.tick();
     assert.notEqual(f.sky.meteor.style.cssText, firstPath);
@@ -108,19 +117,35 @@ test('blocked storage remains usable and mobile schedule keeps the slower interv
     assert.equal(f.sky.meteors[1].classList.contains('is-active'), false);
     f.button.fire('click'); f.button.fire('click');
     assert.equal(f.timers.size, 1);
-    assert.equal(f.sky.children.length, 96);
+    assert.equal(f.sky.children.length, 3);
 });
 
 test('switching to mobile or hiding an active pair clears both meteors without adding timers', () => {
     const f = fixture();
     for (let i = 0; i < 3; i++) { f.tick(); if (i < 2) f.sky.meteor.fire('animationend'); }
     assert.equal(f.sky.meteors[1].classList.contains('is-active'), true);
-    const mobile = f.media['(max-width: 600px)'];
+    const mobile = Object.entries(f.media).find(([query]) => query.includes('max-width'))[1];
     mobile.matches = true; mobile.fire('change');
     assert.ok(f.sky.meteors.every(meteor => !meteor.classList.contains('is-active')));
     assert.equal(f.timers.size, 1);
     f.tick();
     f.document.hidden = true; f.document.listeners.visibilitychange();
     assert.equal(f.timers.size, 0);
+    assert.ok(f.observers.every(observer => !observer.connected));
     assert.ok(f.sky.meteors.every(meteor => !meteor.classList.contains('is-active')));
+});
+
+test('star layers have reproducible positions, different sizes and independent twinkle phases', () => {
+    const f = fixture();
+    const starStyles = sky => sky.children.map(layer => layer.children.map(star => star.style.cssText));
+    const styles = starStyles(f.sky);
+    assert.deepEqual(styles, starStyles(fixture().sky));
+    assert.notEqual(styles[0][0], styles[2][0]);
+    assert.notEqual(styles[0][2].match(/--twinkle-delay:[^;]+/)[0],
+        styles[0][9].match(/--twinkle-delay:[^;]+/)[0]);
+    const start = [...f.timers.values()][0].delay;
+    assert.ok(start >= 4500 && start <= 8000);
+    f.tick();
+    const next = [...f.timers.values()][0].delay;
+    assert.ok(next >= 13000 && next <= 24000);
 });

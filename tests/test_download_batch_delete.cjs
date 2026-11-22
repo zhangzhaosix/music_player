@@ -235,6 +235,7 @@ test('deleting the playing local file releases audio first and rejects HTTP erro
 test('a background download refresh does not replace the active tab filter count', async () => {
     const c = fixture();
     c.state.currentTab = 'favorites';
+    c.ICON = { loader: '<svg></svg>' };
     c.fetchJSON = async () => ({});
     c.findFavoriteForSong = () => false;
     c.renderDownloads = () => { throw new Error('must not render the inactive tab'); };

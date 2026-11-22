@@ -123,6 +123,7 @@ test('search labels preserve result order across mixed matches and later pages',
         $: id => nodes[id], document: { activeElement: null },
         buildSongItem: song => `<song>${song.id}</song>`, escapeHtml: String,
         searchHasMore: true, searchMoreLoading: false, searchPage: 1, toast() {},
+        ICON: { musicNote: '<svg></svg>' },
         fetch: async url => {
             requests.push(url);
             return { ok: true, json: async () => ({ results: [{ id: 'later', title: '遇见', artist: '孙燕姿' }], has_more: false }) };
