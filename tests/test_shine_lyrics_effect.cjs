@@ -12,7 +12,7 @@ function fixture(storageFails = false) {
     const panel = { classList: { toggle(key, value) { if (value) classes.add(key); else classes.delete(key); } } };
     const saved = [];
     const c = vm.createContext({
-        state: { lyricsEffect: 'neon', isPlaying: true, currentLyricsKey: 'same-song', lyricsFollow: false },
+        state: { lyricsEffect: 'emphasis', isPlaying: true, currentLyricsKey: 'same-song', lyricsFollow: false },
         audio: { currentTime: 42 },
         $: id => id === 'lyricsPanel' ? panel : button,
         localStorage: { setItem(key, value) { if (storageFails) throw new Error('blocked'); saved.push([key, value]); } },
@@ -38,15 +38,17 @@ test('switching lyric appearance persists the mode without changing playback or 
     assert.equal(c.state.lyricsEffect, 'clear');
     assert.equal(button.textContent, '清晰高亮');
     assert.equal(attributes['aria-pressed'], 'false');
-    assert.equal(classes.has('clear-lyrics'), true);
+    assert.equal(classes.has('emphasis-lyrics'), false);
     assert.equal(c.audio.currentTime, 42);
     assert.equal(c.state.isPlaying, true);
     assert.equal(c.state.currentLyricsKey, 'same-song');
     assert.equal(c.state.lyricsFollow, false);
     assert.deepEqual(saved, [['shine_lyrics_effect', 'clear']]);
     c.toggleLyricsEffect();
-    assert.equal(c.state.lyricsEffect, 'neon');
-    assert.equal(classes.has('clear-lyrics'), false);
+    assert.equal(c.state.lyricsEffect, 'emphasis');
+    assert.equal(button.textContent, '强调高亮');
+    assert.equal(attributes['aria-pressed'], 'true');
+    assert.equal(classes.has('emphasis-lyrics'), true);
 });
 
 test('L works after a normal button receives focus, but a held key toggles only once', () => {
@@ -66,7 +68,7 @@ test('typing, composing, modifier shortcuts, dialogs and popovers do not switch 
         event('BUTTON', {}, '.modal-box'), event('BUTTON', {}, '.add-to-pl-panel'), event('BUTTON', {}, '[popover]')];
     for (const press of events) {
         c.handleKeyboardShortcuts(press);
-        assert.equal(c.state.lyricsEffect, 'neon');
+        assert.equal(c.state.lyricsEffect, 'emphasis');
         assert.equal(press.prevented, false);
     }
 });

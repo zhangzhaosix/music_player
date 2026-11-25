@@ -8,20 +8,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shine · 我的音乐</title>
     <link rel="icon" href="/static/shine-avatar.jpg">
-    <link rel="stylesheet" href="/static/style.css?v=20261125-motion">
-    <meta name="theme-color" content="#080a1a">
+    <link rel="stylesheet" href="/static/style.css?v=20261125-warm-lyrics">
+    <meta name="theme-color" content="#f5f1ed">
 </head>
 <body>
-    <div id="skyBackground" class="ambient-sky" aria-hidden="true"><span class="sky-meteor"></span><span class="sky-meteor"></span></div>
     <div class="app-container">
         <header class="app-header" aria-label="Shine 音乐播放器">
             <div class="brand-mark">
                 <img class="brand-avatar" src="/static/shine-avatar.jpg" width="72" height="72" alt="Shine 的头像">
                 <div class="brand-copy"><h1>Shine</h1></div>
             </div>
-            <button id="ambientToggle" class="icon-text-btn ambient-toggle" type="button" aria-pressed="true">
-                {{ icon('sky') }}<span>动态背景</span>
-            </button>
         </header>
         <nav class="mobile-navigation" aria-label="页面快捷导航">
             <a href="#player">{{ icon('headphones') }}播放器</a>
@@ -76,7 +72,7 @@
                     </div>
                 </div>
                 <div id="playbackNotice" class="playback-notice" role="status" aria-live="polite" hidden><span class="notice-with-icon">{{ icon('alert', 'playback-alert') }}{{ icon('loader', 'playback-loading') }}<span id="playbackMessage"></span></span><button id="retryPlaybackBtn" class="text-btn" type="button" hidden>重试播放</button></div>
-                <div class="lyrics-toolbar"><h2 class="lyrics-heading">歌词</h2><div class="lyrics-actions"><button id="resumeLyricsBtn" class="text-btn" type="button" hidden>回到当前歌词</button><button id="lyricsEffectBtn" class="effect-btn" type="button" aria-pressed="true" title="切换歌词效果（L）">霓虹高亮</button></div></div>
+                <div class="lyrics-toolbar"><h2 class="lyrics-heading">歌词</h2><div class="lyrics-actions"><button id="resumeLyricsBtn" class="text-btn" type="button" hidden>回到当前歌词</button><button id="lyricsEffectBtn" class="effect-btn" type="button" aria-pressed="false" title="切换歌词效果（L）">清晰高亮</button></div></div>
                 <div class="lyric-panels"><div id="lyricsPanel" class="lyric-panel active"><div id="lyricsList" class="lyrics-list" tabindex="0" aria-label="歌曲歌词"></div></div></div>
             </section>
             <aside id="libraryPanel" class="panel library-panel" aria-label="音乐库">
@@ -182,7 +178,6 @@
     </div>
     <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplayback"></audio>
 
-    <script src="/static/ambient.js?v=20261125-motion"></script>
-    <script src="/static/app.js?v=20261125-motion"></script>
+    <script src="/static/app.js?v=20261125-warm"></script>
 </body>
 </html>

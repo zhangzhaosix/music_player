@@ -3,7 +3,7 @@ const state = {
     currentTab: 'queue',
     searchError: '',
     searchSourceErrors: {},
-    lyricsEffect: 'neon',
+    lyricsEffect: 'clear',
     searchResults: [],
     unavailableSources: new Map(),
     localMusic: [],
@@ -378,16 +378,16 @@ function openLibrary() {
 }
 
 function syncLyricsEffect() {
-    const neon = state.lyricsEffect === 'neon';
-    $('lyricsPanel').classList.toggle('clear-lyrics', !neon);
+    const emphasis = state.lyricsEffect === 'emphasis';
+    $('lyricsPanel').classList.toggle('emphasis-lyrics', emphasis);
     const button = $('lyricsEffectBtn');
-    button.textContent = neon ? '霓虹高亮' : '清晰高亮';
-    button.setAttribute('aria-pressed', String(neon));
+    button.textContent = emphasis ? '强调高亮' : '清晰高亮';
+    button.setAttribute('aria-pressed', String(emphasis));
     button.setAttribute('aria-label', `歌词效果：${button.textContent}，点击切换`);
 }
 
 function toggleLyricsEffect() {
-    state.lyricsEffect = state.lyricsEffect === 'neon' ? 'clear' : 'neon';
+    state.lyricsEffect = state.lyricsEffect === 'emphasis' ? 'clear' : 'emphasis';
     syncLyricsEffect();
     try { localStorage.setItem('shine_lyrics_effect', state.lyricsEffect); } catch { /* optional preference */ }
 }
@@ -2348,16 +2348,14 @@ playModeBtn.addEventListener('click', () => {
     savePlaybackState();
 });
 
-function updateRangeFill(el, color1, color2) {
+function updateRangeFill(el) {
     const val = parseFloat(el.value);
     const min = parseFloat(el.min) || 0;
     const max = parseFloat(el.max) || 100;
     const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
-    const c1 = color1 || 'var(--accent)';
-    const c2 = color2 || 'rgba(255,255,255,0.12)';
     // Native range thumbs travel within the track, inset by half their width.
     const stop = `calc(${pct}% + var(--thumb-size) * ${0.5 - pct / 100})`;
-    el.style.setProperty('--range-fill', `linear-gradient(to right, ${c1} 0%, ${c1} ${stop}, ${c2} ${stop}, ${c2} 100%)`);
+    el.style.setProperty('--range-fill', `linear-gradient(to right, var(--accent-strong) 0 ${stop}, var(--range-track) ${stop} 100%)`);
 }
 
 function isIncompleteAudio(song, actualDuration) {
@@ -2460,7 +2458,7 @@ function setVolume(value) {
     playbackState.baseVolume = next / 100;
     try { localStorage.setItem('music_volume', String(next)); } catch { /* Playback works without storage. */ }
     applyEffectiveVolume();
-    updateRangeFill(volumeBar, 'var(--accent)', 'rgba(255,255,255,0.12)');
+    updateRangeFill(volumeBar);
 }
 
 function adjustVolume(delta) {
@@ -3399,7 +3397,10 @@ function playPlaylist(plId) {
 
 async function init() {
     setInterval(updateGDServerStatus, 20000);
-    try { state.lyricsEffect = localStorage.getItem('shine_lyrics_effect') === 'clear' ? 'clear' : 'neon'; } catch { /* default neon */ }
+    try {
+        const savedLyricsEffect = localStorage.getItem('shine_lyrics_effect');
+        if (savedLyricsEffect === 'emphasis' || savedLyricsEffect === 'neon') state.lyricsEffect = 'emphasis';
+    } catch { /* Use the default when storage is unavailable. */ }
     syncLyricsEffect();
     syncLibraryNavigation();
     renderSearchResults();
