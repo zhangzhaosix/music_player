@@ -79,7 +79,8 @@
             }
         }
         const moving = visible && !document.querySelector(':popover-open') &&
-            ![...document.querySelectorAll(overlays)].some(node => !node.hidden && getComputedStyle(node).display !== 'none');
+            ![...document.querySelectorAll(overlays)].some(node => !node.hidden && !node.inert && getComputedStyle(node).display !== 'none');
+        sky.classList.toggle('is-paused', allowed && !moving);
         if (reset === true || moving !== sky.classList.contains('is-moving')) {
             clearTimeout(timer);
             meteors.forEach(meteor => meteor.classList.remove('is-active'));

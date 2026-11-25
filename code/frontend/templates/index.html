@@ -8,7 +8,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shine · 我的音乐</title>
     <link rel="icon" href="/static/shine-avatar.jpg">
-    <link rel="stylesheet" href="/static/style.css?v=20261122-shine">
+    <link rel="stylesheet" href="/static/style.css?v=20261125-motion">
     <meta name="theme-color" content="#080a1a">
 </head>
 <body>
@@ -23,6 +23,11 @@
                 {{ icon('sky') }}<span>动态背景</span>
             </button>
         </header>
+        <nav class="mobile-navigation" aria-label="页面快捷导航">
+            <a href="#player">{{ icon('headphones') }}播放器</a>
+            <a href="#searchHeading">{{ icon('search') }}找歌</a>
+            <a href="#libraryPanel">{{ icon('library') }}音乐库</a>
+        </nav>
         <main class="music-layout music-player-page" aria-label="音乐搜索、播放器和播放列表">
             <section class="panel search-panel" aria-labelledby="searchHeading">
                 <div class="panel-heading"><h2 id="searchHeading">{{ icon('search') }}歌曲搜索</h2></div>
@@ -31,12 +36,11 @@
                     <input type="search" id="searchInput" aria-label="在线搜索歌曲或歌手" placeholder="输入歌名、歌手…" autocomplete="off" enterkeyhint="search">
                     <button id="searchBtn" type="button">搜索</button>
                 </div>
-                <div id="gdServerNotice" class="gd-server-notice notice-with-icon" role="status" aria-live="polite" hidden>{{ icon('alert') }}<span>GD 音乐台的服务器端出现问题，请稍后重试。</span></div>
                 <button id="gdResumeBtn" class="btn-secondary search-retry" type="button" onclick="resumeGD()" hidden>确认限制已解除，恢复请求</button>
-                <div class="search-summary"><span id="searchStatus" role="status" aria-live="polite">搜索结果</span><span id="searchResultCount">0 首</span></div>
+                <div id="searchSummary" class="search-summary"><span id="searchStatus" role="status"></span><span id="searchResultCount"></span></div>
                 <div id="searchMiniResults" class="search-mini-list song-list"><div class="empty-state">{{ icon('musicNote') }}<p>输入歌名或歌手开始搜索。</p></div></div>
             </section>
-            <section id="player" class="panel player-panel" aria-labelledby="playerHeading">
+            <section id="player" class="panel player-panel" aria-labelledby="playerHeading" tabindex="-1">
                 <div class="panel-heading"><h2 id="playerHeading">{{ icon('headphones') }}正在播放</h2><span id="vinylState" class="playback-state" role="status">等待播放</span></div>
                 <div class="player-top">
                     <div class="album-art" aria-hidden="true"><img id="playerCover" class="player-illustration" src="/static/player-illustration.png" width="658" height="658" alt=""></div>
@@ -51,14 +55,14 @@
                             </button>
                         </div>
                     </div>
-                    <div class="player-progress"><span id="currentTime" class="time">00:00</span><input type="range" id="progressBar" class="progress-bar" value="0" min="0" max="100" aria-label="播放进度"><span id="totalTime" class="time">00:00</span></div>
+                    <div class="player-progress"><span id="currentTime" class="time">00:00</span><input type="range" id="progressBar" class="progress-bar" value="0" min="0" max="100" step="any" aria-label="播放进度"><span id="totalTime" class="time">00:00</span></div>
                     <div class="player-control-row">
                         <div class="player-controls">
                             <button id="prevBtn" class="ctrl-btn player-icon-btn" type="button" title="上一首" aria-label="上一首" disabled>
                                 {{ icon('previous') }}
                             </button>
                             <button id="playBtn" class="ctrl-btn player-icon-btn play-btn" type="button" title="播放" aria-label="播放">
-                                {{ icon('play') }}
+                                {{ icon('play', 'play-glyph') }}{{ icon('pause', 'pause-glyph') }}{{ icon('loader', 'connecting-glyph') }}
                             </button>
                             <button id="nextBtn" class="ctrl-btn player-icon-btn" type="button" title="下一首" aria-label="下一首" disabled>
                                 {{ icon('next') }}
@@ -75,8 +79,8 @@
                 <div class="lyrics-toolbar"><h2 class="lyrics-heading">歌词</h2><div class="lyrics-actions"><button id="resumeLyricsBtn" class="text-btn" type="button" hidden>回到当前歌词</button><button id="lyricsEffectBtn" class="effect-btn" type="button" aria-pressed="true" title="切换歌词效果（L）">霓虹高亮</button></div></div>
                 <div class="lyric-panels"><div id="lyricsPanel" class="lyric-panel active"><div id="lyricsList" class="lyrics-list" tabindex="0" aria-label="歌曲歌词"></div></div></div>
             </section>
-            <aside id="libraryPanel" class="panel library-panel" aria-label="播放列表">
-                <div class="panel-heading"><h2>{{ icon('library') }}播放列表</h2><div class="library-controls"><button id="playModeBtn" class="ctrl-btn" type="button" title="列表循环" aria-label="列表循环">{{ icon('repeat') }}</button><button id="queueBtn" class="ctrl-btn" type="button" title="播放队列" aria-label="播放队列" aria-controls="tab-queue" aria-pressed="false">{{ icon('queue') }}</button></div></div>
+            <aside id="libraryPanel" class="panel library-panel" aria-label="音乐库">
+                <div class="panel-heading"><h2>{{ icon('library') }}音乐库</h2><div class="library-controls"><button id="playModeBtn" class="ctrl-btn" type="button" title="列表循环" aria-label="列表循环">{{ icon('repeat') }}</button></div></div>
                 <nav class="tabs" aria-label="音乐库分类"><button class="tab active" type="button" data-tab="queue">队列</button><button class="tab" type="button" data-tab="favorites">收藏</button><button class="tab" type="button" data-tab="playlists">我的歌单</button><button class="tab" type="button" data-tab="downloads">下载</button></nav>
             <div id="listFilterBar" class="list-filter" hidden>
                 <input type="search" id="listFilterInput" aria-label="筛选当前列表" placeholder="筛选收藏中的歌名、歌手" autocomplete="off">
@@ -88,7 +92,6 @@
                     <div id="tab-favorites" class="tab-content">
                         <div class="favorites-sticky-tools">
                         <div class="collection-tools">
-                            <span id="favoriteCount" class="song-count"></span>
                             <button id="playFavoritesBtn" class="btn-primary" type="button">播放收藏</button>
                             <button id="manageFavoritesBtn" class="text-btn" type="button" aria-pressed="false">批量管理</button>
                         </div>
@@ -107,7 +110,6 @@
                     <div id="tab-downloads" class="tab-content">
                         <div class="downloads-sticky-tools">
                             <div class="collection-tools">
-                                <span class="song-count">管理本地歌曲</span>
                                 <button id="manageDownloadsBtn" class="text-btn" type="button" aria-pressed="false">批量删除</button>
                             </div>
                             <div id="downloadsBatchHost" class="page-tools"></div>
@@ -138,15 +140,16 @@
             </aside>
         </main>
         <div id="playlistModal" class="modal-overlay" style="display:none">
-            <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="playlistModalTitle">
+            <form id="playlistForm" class="modal-box" role="dialog" aria-modal="true" aria-labelledby="playlistModalTitle">
                 <h3 id="playlistModalTitle">新建歌单</h3>
                 <label for="playlistNameInput" class="field-label">歌单名称</label>
-                <input type="text" id="playlistNameInput" placeholder="例如：一个人的夜晚" autocomplete="off" maxlength="80">
+                <input type="text" id="playlistNameInput" autocomplete="off" maxlength="80" required>
+                <p id="playlistFormError" class="form-error" role="alert" hidden></p>
                 <div class="modal-actions">
                     <button id="cancelPlaylistBtn" class="btn-secondary" type="button">取消</button>
-                    <button id="confirmPlaylistBtn" class="btn-primary" type="button">创建</button>
+                    <button id="confirmPlaylistBtn" class="btn-primary" type="submit">创建</button>
                 </div>
-            </div>
+            </form>
         </div>
         <div id="downloadPlaylistModal" class="modal-overlay" style="display:none">
             <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="downloadPlaylistModalTitle">
@@ -172,9 +175,14 @@
     </div>
 
     <div id="songActionsPopover" class="song-actions-popover" popover aria-label="歌曲操作"></div>
+    <div id="undoNotice" class="toast undo-notice show" hidden>
+        <span id="undoMessage" role="status"></span>
+        <button id="undoActionBtn" class="text-btn" type="button">撤销</button>
+        <button id="undoDismissBtn" class="text-btn" type="button" aria-label="关闭撤销提示">关闭</button>
+    </div>
     <audio id="audioPlayer" preload="auto" controlsList="nodownload noremoteplayback"></audio>
 
-    <script src="/static/ambient.js?v=20261122-shine"></script>
-    <script src="/static/app.js?v=20261122-shine"></script>
+    <script src="/static/ambient.js?v=20261125-motion"></script>
+    <script src="/static/app.js?v=20261125-motion"></script>
 </body>
 </html>

@@ -70,6 +70,11 @@ test('modal and hidden page stop timers; only an available page resumes; repeate
     const f = fixture();
     f.modal.display = 'flex'; f.observers[0].fn();
     assert.equal(f.timers.size, 0);
+    assert.equal(f.sky.classList.contains('is-paused'), true);
+    f.modal.inert = true; f.observers[0].fn();
+    assert.equal(f.sky.classList.contains('is-paused'), false);
+    assert.equal(f.timers.size, 1);
+    f.modal.inert = false; f.observers[0].fn();
     f.document.hidden = true; f.document.listeners.visibilitychange();
     f.modal.display = 'none'; f.observers[0].fn();
     assert.equal(f.timers.size, 0);
@@ -77,6 +82,7 @@ test('modal and hidden page stop timers; only an available page resumes; repeate
     f.document.listeners.visibilitychange();
     assert.equal(f.timers.size, 1);
     assert.equal(f.sky.classList.contains('is-moving'), true);
+    assert.equal(f.sky.classList.contains('is-paused'), false);
     f.document.openPopover = true; f.document.listeners.toggle();
     assert.equal(f.timers.size, 0);
     f.document.openPopover = false; f.document.listeners.toggle();

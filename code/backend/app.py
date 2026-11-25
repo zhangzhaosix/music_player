@@ -7,6 +7,7 @@ import urllib.parse
 import requests
 import threading
 import copy
+import tempfile
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from email.utils import parsedate_to_datetime
@@ -64,6 +65,7 @@ _playback_requests = {}
 _source_requests = {}
 _source_cache = OrderedDict()
 _request_lock = threading.RLock()
+_library_lock = threading.RLock()
 _request_context = threading.local()
 _search_workers = ThreadPoolExecutor(max_workers=3, thread_name_prefix='music-search')
 _upstream_cooldowns = {}
@@ -928,15 +930,26 @@ def read_json(filepath):
     if not os.path.exists(filepath):
         return []
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with _library_lock, open(filepath, 'r', encoding='utf-8') as f:
             return json.load(f)
     except (json.JSONDecodeError, FileNotFoundError):
         return []
 
 
 def write_json(filepath, data):
-    with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    if filepath not in (FAVORITES_FILE, PLAYLISTS_FILE):
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return
+
+    f = tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=os.path.dirname(filepath), delete=False)
+    try:
+        with f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(f.name, filepath)
+    finally:
+        if os.path.exists(f.name):
+            os.unlink(f.name)
 
 
 def get_local_music():
@@ -1795,8 +1808,9 @@ def api_search():
         def generate():
             local = search_local_songs(q)
             if local:
-                yield json.dumps({'results': decorate_search_results(local), 'done': False, 'source_errors': {}}, ensure_ascii=False) + '\n'
+                yield json.dumps({'results': decorate_search_results(local), 'done': False, 'source_errors': {}, 'has_more': False}, ensure_ascii=False) + '\n'
             for snapshot in search_snapshots(q, len(SEARCH_SOURCES) * source_limit, source_limit=source_limit):
+                snapshot['has_more'] = len(snapshot['results']) >= source_limit
                 snapshot['results'] = decorate_search_results(snapshot['results'] or local)
                 yield json.dumps(snapshot, ensure_ascii=False) + '\n'
         return Response(stream_with_context(generate()), mimetype='application/x-ndjson',
@@ -2056,16 +2070,6 @@ def api_delete_music(filename):
 
     remove_download_record(filename)
 
-    # 先记录要清理的 song_id
-    favs = read_json(FAVORITES_FILE)
-    song_ids_to_remove = {f['id'] for f in favs if f.get('filename') == filename}
-    song_ids_to_remove.add(filename)  # 文件名本身也作为备选 id
-
-    # 从收藏中移除
-    favs = [f for f in favs if f.get('filename') != filename]
-    write_json(FAVORITES_FILE, favs)
-
-    # 从所有歌单中移除关联的歌曲
     def should_remove_playlist_song(song_item):
         if isinstance(song_item, dict):
             return (
@@ -2074,13 +2078,19 @@ def api_delete_music(filename):
             )
         return song_item in song_ids_to_remove
 
-    playlists = read_json(PLAYLISTS_FILE)
-    for pl in playlists:
-        songs = pl.get('songs') if isinstance(pl, dict) else []
-        if not isinstance(songs, list):
-            songs = []
-        pl['songs'] = [s for s in songs if not should_remove_playlist_song(s)]
-    write_json(PLAYLISTS_FILE, playlists)
+    with _library_lock:
+        favs = read_json(FAVORITES_FILE)
+        song_ids_to_remove = {f['id'] for f in favs if f.get('filename') == filename}
+        song_ids_to_remove.add(filename)
+        write_json(FAVORITES_FILE, [f for f in favs if f.get('filename') != filename])
+
+        playlists = read_json(PLAYLISTS_FILE)
+        for pl in playlists:
+            songs = pl.get('songs') if isinstance(pl, dict) else []
+            if not isinstance(songs, list):
+                songs = []
+            pl['songs'] = [s for s in songs if not should_remove_playlist_song(s)]
+        write_json(PLAYLISTS_FILE, playlists)
 
     return jsonify({'success': True, 'message': f'{filename} 已删除'})
 
@@ -2331,22 +2341,32 @@ def api_add_favorite():
         'actual_duration': data.get('actual_duration'),
         'is_preview': bool(data.get('is_preview', False)),
     }
-    fav = hydrate_song_entry(fav)
-    favs = read_json(FAVORITES_FILE)
-    for existing in favs:
-        if (
-            existing.get('id') == fav.get('id')
-            or (
-                existing.get('filename')
-                and existing.get('filename') == fav.get('filename')
-                and (existing.get('id') == existing.get('filename') or fav.get('id') == fav.get('filename'))
-            )
-        ):
-            return jsonify({'success': True, 'message': '已收藏', 'favorite': hydrate_song_entry(existing)})
+    with _library_lock:
+        fav = hydrate_song_entry(fav)
+        favs = read_json(FAVORITES_FILE)
+        for position, existing in enumerate(favs):
+            if (
+                existing.get('id') == fav.get('id')
+                or (
+                    existing.get('filename')
+                    and existing.get('filename') == fav.get('filename')
+                    and (existing.get('id') == existing.get('filename') or fav.get('id') == fav.get('filename'))
+                )
+            ):
+                return jsonify({'success': True, 'message': '已收藏', 'favorite': hydrate_song_entry(existing), 'position': position})
 
-    favs.append(fav)
-    write_json(FAVORITES_FILE, favs)
-    return jsonify({'success': True, 'favorite': fav})
+        position = data.get('restore_position')
+        if type(position) is int and position >= 0:
+            position = min(position, len(favs))
+            if fav['id'] == fav['filename'] and not existing_music_file(fav['filename']):
+                return jsonify({'error': '本地文件已删除，无法恢复收藏'}), 409
+            if isinstance(data.get('added_at'), str):
+                fav['added_at'] = data['added_at']
+        else:
+            position = len(favs)
+        favs.insert(position, fav)
+        write_json(FAVORITES_FILE, favs)
+    return jsonify({'success': True, 'favorite': fav, 'position': position})
 
 
 @app.route('/api/favorites', methods=['DELETE'])
@@ -2356,9 +2376,12 @@ def api_remove_favorite():
     if not song_id:
         return jsonify({'error': '缺少歌曲 ID'}), 400
 
-    favs = read_json(FAVORITES_FILE)
-    favs = [f for f in favs if f['id'] != song_id]
-    write_json(FAVORITES_FILE, favs)
+    with _library_lock:
+        favs = read_json(FAVORITES_FILE)
+        for position, favorite in enumerate(favs):
+            if favorite['id'] == song_id:
+                write_json(FAVORITES_FILE, [f for f in favs if f['id'] != song_id])
+                return jsonify({'success': True, 'favorite': favorite, 'position': position})
     return jsonify({'success': True})
 
 
@@ -2376,55 +2399,88 @@ def api_get_playlists():
 
 @app.route('/api/playlists', methods=['POST'])
 def api_create_playlist():
-    data = request.get_json()
-    name = data.get('name', '').strip()
-    if not name:
+    data = request.get_json(silent=True)
+    name = data.get('name') if isinstance(data, dict) else None
+    if not isinstance(name, str) or not name.strip():
         return jsonify({'error': '请输入歌单名称'}), 400
 
-    playlists = read_json(PLAYLISTS_FILE)
-    playlist = {
-        'id': str(uuid.uuid4()),
-        'name': name,
-        'songs': [],
-        'created_at': datetime.now().isoformat(),
-    }
-    playlists.append(playlist)
-    write_json(PLAYLISTS_FILE, playlists)
+    songs = data.get('songs', [])
+    if not isinstance(songs, list) or any(not isinstance(song, dict) or not song.get('id') for song in songs):
+        return jsonify({'error': '歌单歌曲无效'}), 400
+    with _library_lock:
+        playlists = read_json(PLAYLISTS_FILE)
+        playlist = {
+            'id': str(uuid.uuid4()),
+            'name': name.strip(),
+            'songs': [hydrate_song_entry(song) for song in songs],
+            'created_at': datetime.now().isoformat(),
+        }
+        playlists.append(playlist)
+        write_json(PLAYLISTS_FILE, playlists)
     return jsonify({'success': True, 'playlist': playlist}), 201
 
 
 @app.route('/api/playlists/<playlist_id>', methods=['PUT'])
 def api_update_playlist(playlist_id):
-    data = request.get_json()
-    playlists = read_json(PLAYLISTS_FILE)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': '歌单修改内容无效'}), 400
+    new_songs = data.get('add_songs', [])
+    if not isinstance(new_songs, list) or any(not isinstance(song, dict) or not song.get('id') for song in new_songs):
+        return jsonify({'error': '歌单歌曲无效'}), 400
+    if 'add_song' in data:
+        new_songs = [data['add_song'], *new_songs]
 
-    for pl in playlists:
-        if pl['id'] == playlist_id:
-            if 'name' in data:
-                pl['name'] = data['name'].strip()
-            if 'songs' in data:
-                pl['songs'] = [hydrate_song_entry(song, get_favorites_map()) for song in data['songs']]
-            if 'add_song' in data:
-                add_song = hydrate_song_entry(data['add_song'], get_favorites_map())
-                if not any((s.get('id') if isinstance(s, dict) else s) == add_song.get('id') for s in pl['songs']):
-                    pl['songs'].append(add_song)
-            if 'remove_song' in data:
-                remove_song_id = data['remove_song']
-                pl['songs'] = [
-                    s for s in pl['songs']
-                    if (s.get('id') if isinstance(s, dict) else s) != remove_song_id
-                ]
-            write_json(PLAYLISTS_FILE, playlists)
-            return jsonify({'success': True, 'playlist': pl})
+    def song_id(song):
+        return song.get('id') if isinstance(song, dict) else song
 
-    return jsonify({'error': '歌单不存在'}), 404
+    with _library_lock:
+        playlists = read_json(PLAYLISTS_FILE)
+        pl = next((item for item in playlists if item['id'] == playlist_id), None)
+        if pl is None:
+            return jsonify({'error': '歌单不存在'}), 404
+        favorites = get_favorites_map()
+        if 'name' in data:
+            pl['name'] = data['name'].strip()
+        if 'songs' in data:
+            pl['songs'] = [hydrate_song_entry(song, favorites) for song in data['songs']]
+        ids = {song_id(song) for song in pl['songs']}
+        added_count = 0
+        position = data.get('song_position')
+        restoring = len(new_songs) == 1 and type(position) is int and position >= 0
+        for song in new_songs:
+            entry = hydrate_song_entry(song, favorites)
+            if entry['id'] in ids:
+                continue
+            if restoring:
+                if entry['id'] == entry['filename'] and not existing_music_file(entry['filename']):
+                    return jsonify({'error': '本地文件已删除，无法恢复歌曲'}), 409
+                pl['songs'].insert(position, entry)
+            else:
+                pl['songs'].append(entry)
+            ids.add(entry['id'])
+            added_count += 1
+
+        removed = None
+        if 'remove_song' in data:
+            remove_song_id = data['remove_song']
+            for index, song in enumerate(pl['songs']):
+                if song_id(song) == remove_song_id:
+                    removed = {'song': hydrate_song_entry(song, favorites), 'position': index}
+                    break
+            pl['songs'] = [song for song in pl['songs'] if song_id(song) != remove_song_id]
+        write_json(PLAYLISTS_FILE, playlists)
+        # Legacy playlists can still contain string IDs. Hydrate the response as GET does.
+        pl['songs'] = [hydrate_song_entry(song, favorites) for song in pl['songs']]
+        return jsonify({'success': True, 'playlist': pl, 'added_count': added_count, 'removed': removed})
 
 
 @app.route('/api/playlists/<playlist_id>', methods=['DELETE'])
 def api_delete_playlist(playlist_id):
-    playlists = read_json(PLAYLISTS_FILE)
-    playlists = [pl for pl in playlists if pl['id'] != playlist_id]
-    write_json(PLAYLISTS_FILE, playlists)
+    with _library_lock:
+        playlists = read_json(PLAYLISTS_FILE)
+        playlists = [pl for pl in playlists if pl['id'] != playlist_id]
+        write_json(PLAYLISTS_FILE, playlists)
     return jsonify({'success': True})
 
 

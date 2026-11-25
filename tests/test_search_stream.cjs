@@ -123,6 +123,7 @@ test('search labels preserve result order across mixed matches and later pages',
         $: id => nodes[id], document: { activeElement: null },
         buildSongItem: song => `<song>${song.id}</song>`, escapeHtml: String,
         searchHasMore: true, searchMoreLoading: false, searchPage: 1, toast() {},
+        rankSearchResults: songs => songs, syncCachedSongFlags() {},
         ICON: { musicNote: '<svg></svg>' },
         fetch: async url => {
             requests.push(url);
@@ -149,4 +150,27 @@ test('search labels preserve result order across mixed matches and later pages',
     c.state.searchResults = [];
     c.syncSearchPreview();
     assert.match(results.innerHTML, /没有找到可播放的完整版/);
+});
+
+test('an old page cannot overwrite new results after the same keyword is searched again', async () => {
+    let resolveOldPage;
+    const oldSearch = new AbortController();
+    const newSearch = new AbortController();
+    const state = { lastSearchKeyword: '重复', searchController: oldSearch, searchResults: [{ id: 'old-first' }] };
+    const c = vm.createContext({
+        state, AbortSignal, URLSearchParams, SEARCH_SOURCE_LIMIT: 20,
+        $: () => undefined,
+        searchHasMore: true, searchMoreLoading: false, searchPage: 1,
+        toast() {}, syncSearchPreview() {}, syncCachedSongFlags() {}, rankSearchResults: songs => songs,
+        fetch: () => new Promise(resolve => { resolveOldPage = resolve; }),
+    });
+    load(c, 'async function loadMoreSearch(', 'async function resumeGD(');
+    const oldPage = c.loadMoreSearch();
+    oldSearch.abort();
+    state.searchController = newSearch;
+    state.searchResults = [{ id: 'new-first' }];
+    resolveOldPage({ ok: true, json: async () => ({ results: [{ id: 'old-second' }], has_more: false }) });
+    await oldPage;
+    assert.deepEqual(state.searchResults.map(song => song.id), ['new-first']);
+    assert.equal(c.searchPage, 1);
 });

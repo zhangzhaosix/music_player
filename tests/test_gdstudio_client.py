@@ -165,6 +165,24 @@ class GDStudioClientTests(unittest.TestCase):
         self.now += 60
         self.assertIsNone(self.client.server_status())
 
+    def test_search_outage_status_ignores_cover_lyrics_and_playback_responses(self):
+        self.assertFalse(self.client.server_status())
+        self.session.response = Response(502)
+        for kind in ('pic', 'lyric', 'url'):
+            self.assertIsNotNone(self.client.request(kind)[1])
+            self.assertFalse(self.client.server_status())
+
+        self.assertIn('搜索服务', self.client.request('search')[1])
+        for kind, body in (('pic', '{"url":"https://example.com/cover.png"}'),
+                           ('lyric', '{"lyric":"[00:01]lyrics"}'),
+                           ('url', '{"url":"https://example.com/song.mp3"}')):
+            self.session.response = Response(body=body)
+            self.assertIsNone(self.client.request(kind)[1])
+            self.assertTrue(self.client.server_status())
+        self.session.response = Response()
+        self.client.request('search')
+        self.assertFalse(self.client.server_status())
+
 
 if __name__ == '__main__':
     unittest.main()

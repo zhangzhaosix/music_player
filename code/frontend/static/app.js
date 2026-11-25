@@ -8,7 +8,9 @@ const state = {
     unavailableSources: new Map(),
     localMusic: [],
     favorites: [],
+    favoritesRevision: 0,
     playlists: [],
+    playlistsRevision: 0,
     queue: [],
     queueIndex: -1,
     isPlaying: false,
@@ -46,7 +48,6 @@ const searchInput = $('searchInput');
 const searchBtn = $('searchBtn');
 const listFilterInput = $('listFilterInput');
 const playBtn = $('playBtn');
-const playerPlayIcon = playBtn.querySelector('use');
 const prevBtn = $('prevBtn');
 const nextBtn = $('nextBtn');
 const playModeBtn = $('playModeBtn');
@@ -57,6 +58,8 @@ const totalTime = $('totalTime');
 const playerBar = $('player');
 const playerTitle = $('playerTitle');
 const playerArtist = $('playerArtist');
+const playerCover = $('playerCover');
+const initialCoverUrl = playerCover.getAttribute('src');
 const equalizer = $('equalizer');
 const batchToolbar = $('batchToolbar');
 const batchCount = $('batchCount');
@@ -65,7 +68,6 @@ const batchFavoriteBtn = $('batchFavoriteBtn');
 const batchPlaylistBtn = $('batchPlaylistBtn');
 const batchDownloadBtn = $('batchDownloadBtn');
 const batchSelectAllBtn = $('batchSelectAllBtn');
-const queueBtn = $('queueBtn');
 const libraryPanel = $('libraryPanel');
 const vinylState = $('vinylState');
 const lyricsList = $('lyricsList');
@@ -76,6 +78,7 @@ const deleteConfirmTitle = $('deleteConfirmTitle');
 const deleteConfirmMessage = $('deleteConfirmMessage');
 const cancelDeleteConfirmBtn = $('cancelDeleteConfirmBtn');
 const confirmDeleteConfirmBtn = $('confirmDeleteConfirmBtn');
+const downloadsInProgress = new Set();
 
 let deleteConfirmResolver = null;
 let isSearchComposing = false;
@@ -110,26 +113,81 @@ const ICON = Object.fromEntries([
     'queue', 'loader', 'info', 'alert',
 ].map(name => [name, `<svg class="icon" aria-hidden="true"><use href="${ICON_SPRITE}#${name}"/></svg>`]));
 
+const contentFades = new WeakMap();
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
+function fadeContent(element) {
+    if (reducedMotion.matches || !element?.animate) return;
+    const style = getComputedStyle(element);
+    const duration = parseFloat(style.getPropertyValue('--motion-change'));
+    if (!duration) return;
+    contentFades.get(element)?.cancel();
+    contentFades.set(element, element.animate({ opacity: [.76, 1] }, {
+        duration,
+        easing: style.getPropertyValue('--motion-ease').trim() || 'ease-out',
+    }));
+}
+playerCover.addEventListener('load', () => { if (playerCover.dataset.cover) fadeContent(playerCover); });
+
 // ─── 工具栏 ─────────────────────────────────────────────
 
 function toast(msg, isError = false, symbol = 'info') {
-    document.querySelectorAll('.toast').forEach(el => el.remove());
+    document.querySelector('.toast:not(.undo-notice)')?.remove();
     const el = document.createElement('div');
-    el.className = `toast${isError ? ' error-toast' : ''}`;
+    el.className = `toast show${isError ? ' error-toast' : ''}`;
     el.innerHTML = ICON[isError ? 'alert' : symbol];
     el.append(document.createTextNode(msg));
     el.setAttribute('role', isError ? 'alert' : 'status');
     document.body.appendChild(el);
-    requestAnimationFrame(() => el.classList.add('show'));
     setTimeout(() => {
         el.classList.remove('show');
         setTimeout(() => el.remove(), 300);
     }, isError ? 6000 : 3000);
 }
 
+let undoAction = null;
+let undoReturnFocus = null;
+
+function offerUndo(message, action) {
+    undoAction = action;
+    undoReturnFocus = document.activeElement;
+    $('undoActionBtn').disabled = false;
+    $('undoDismissBtn').disabled = false;
+    $('undoNotice').hidden = false;
+    $('undoMessage').textContent = message;
+}
+
+function dismissUndo() {
+    const notice = $('undoNotice');
+    if (notice.contains(document.activeElement) || document.activeElement === document.body) {
+        const target = undoReturnFocus?.getClientRects().length ? undoReturnFocus : libraryPanel.querySelector('.tab.active');
+        target?.focus({ preventScroll: true });
+    }
+    notice.hidden = true;
+    undoAction = null;
+    undoReturnFocus = null;
+}
+
+$('undoDismissBtn').addEventListener('click', dismissUndo);
+$('undoActionBtn').addEventListener('click', async () => {
+    const action = undoAction;
+    if (!action) return;
+    $('undoActionBtn').disabled = true;
+    $('undoDismissBtn').disabled = true;
+    try {
+        await action();
+        if (undoAction === action) dismissUndo();
+        toast('已撤销', false, 'check');
+    } catch (error) {
+        if (undoAction !== action) return;
+        $('undoActionBtn').disabled = false;
+        $('undoDismissBtn').disabled = false;
+        toast(error.message || '撤销失败，请重试', true);
+    }
+});
+
 async function fetchJSON(url, options = {}) {
     const resp = await fetch(url, { ...options, signal: options.signal || AbortSignal.timeout(30000) });
-    const data = await resp.json();
+    const data = await resp.json().catch(() => { throw new Error('服务响应异常，请重试'); });
     if (!resp.ok || data.error || data.success === false) throw new Error(data.error || '请求失败，请重试');
     return data;
 }
@@ -158,13 +216,12 @@ function showDeleteConfirm({ title = '确认删除', message = '', confirmText =
     deleteConfirmTitle.textContent = title;
     deleteConfirmMessage.textContent = message;
     confirmDeleteConfirmBtn.textContent = confirmText;
+    deleteConfirmModal.setAttribute('aria-hidden', 'false');
     deleteConfirmModal.style.display = 'flex';
     focusDialog(deleteConfirmModal);
-    deleteConfirmModal.setAttribute('aria-hidden', 'false');
 
     return new Promise(resolve => {
         deleteConfirmResolver = resolve;
-        requestAnimationFrame(() => cancelDeleteConfirmBtn?.focus());
     });
 }
 
@@ -239,9 +296,12 @@ function renderLyrics(song) {
     lyricsList.innerHTML = fallbackNotice + lyricEntries
         .map((line, index) => `<p class="lyric-line" data-lyric-index="${index}" data-time="${line.time ?? ''}">${escapeHtml(line.text)}</p>`)
         .join('');
+    lyricsList.scrollTop = 0;
     state.lyricLines = Array.from(lyricsList.querySelectorAll('.lyric-line'));
     state.timedLyrics = lyricEntries.map((line, index) => ({ index, time: line.time }))
         .filter(line => line.time !== null && line.time >= 0);
+    lyricsList.closest('.lyric-panels').classList.toggle('empty-lyrics', lyricEntries.length === 0);
+    $('lyricsEffectBtn').hidden = state.timedLyrics.length === 0;
 }
 
 function syncLyricHighlight(forceScroll = false) {
@@ -254,15 +314,16 @@ function syncLyricHighlight(forceScroll = false) {
         activeIndex = item.index;
     }
     if (activeIndex === state.currentLyricIndex && !forceScroll) return;
-    lines[state.currentLyricIndex]?.classList.remove('active');
-    lines[activeIndex]?.classList.add('active');
-    state.currentLyricIndex = activeIndex;
+    if (activeIndex !== state.currentLyricIndex) {
+        lines[state.currentLyricIndex]?.classList.remove('active');
+        lines[activeIndex]?.classList.add('active');
+        state.currentLyricIndex = activeIndex;
+    }
     const activeLine = lines[activeIndex];
     if (activeLine && (state.isPlaying || forceScroll) && state.lyricsFollow) {
-        lyricsList.scrollTo({
-            top: activeLine.offsetTop - lyricsList.clientHeight / 2 + activeLine.clientHeight / 2,
-            behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
-        });
+        const top = activeLine.offsetTop - lyricsList.clientHeight / 2 + activeLine.clientHeight / 2;
+        const nearby = Math.abs(top - lyricsList.scrollTop) <= lyricsList.clientHeight;
+        lyricsList.scrollTo({ top, behavior: nearby && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant' });
     }
 }
 
@@ -270,32 +331,40 @@ function syncImmersivePlayerUI() {
     const song = state.currentSong;
     const waitingToRetry = playbackState.autoAdvance?.timer != null;
     const title = song ? (song.title || '未知歌曲') : '暂未选择歌曲';
-    const artist = song ? (song.artist || '未知歌手') : '搜索并播放一首歌吧';
+    const artist = song ? (song.artist || '未知歌手') : '';
 
     document.body.classList.toggle('is-playing', state.isPlaying);
-    if (vinylState) vinylState.textContent = waitingToRetry ? '等待自动重试' : state.playbackError ? '播放遇到问题' : state.isLoading ? '正在连接…' : state.isBuffering ? '正在缓冲…' : (state.isPlaying ? '正在播放' : (state.currentSong ? '已暂停' : '等待播放'));
+    const status = waitingToRetry ? '等待自动重试' : state.playbackError ? '播放遇到问题' : state.isLoading ? '正在连接…' : state.isBuffering ? '正在缓冲…' : (state.isPlaying ? '正在播放' : (song ? '已暂停' : '等待播放'));
+    if (vinylState && vinylState.textContent !== status) vinylState.textContent = status;
     const playbackNotice = $('playbackNotice');
     playbackNotice.hidden = !state.playbackError && !state.isBuffering;
     playbackNotice.classList.toggle('has-error', Boolean(state.playbackError));
-    $('playbackMessage').textContent = state.playbackError || '正在缓冲音频，请稍候…';
+    const message = state.playbackError || '正在缓冲音频，请稍候…';
+    if ($('playbackMessage').textContent !== message) $('playbackMessage').textContent = message;
     $('retryPlaybackBtn').hidden = !state.playbackError;
+    favoriteCurrentBtn.hidden = !song;
+    playerArtist.hidden = !song;
+    playerBar.querySelector('.lyrics-toolbar').hidden = !song;
+    playerBar.querySelector('.lyric-panels').hidden = !song;
     syncDownloadCurrentButton();
-    playBtn.title = waitingToRetry ? '取消自动重试' : state.isLoading ? '正在连接音频' : (state.isPlaying ? '暂停' : (song ? '播放' : '选歌播放'));
-    playerPlayIcon.setAttribute('href', `${ICON_SPRITE}#${state.isPlaying || waitingToRetry ? 'pause' : 'play'}`);
+    playBtn.title = waitingToRetry ? '取消自动重试' : state.isLoading ? '正在连接音频' : (state.isPlaying ? '暂停' : (song ? '播放' : '找歌播放'));
+    playBtn.classList.toggle('shows-pause', state.isPlaying || waitingToRetry);
     playBtn.setAttribute('aria-label', playBtn.title);
     playBtn.disabled = state.isLoading;
     playBtn.setAttribute('aria-busy', String(state.isLoading));
     [prevBtn, nextBtn, favoriteCurrentBtn, progressBar].forEach(control => control.disabled = !song);
     playModeBtn.setAttribute('aria-label', playModeBtn.title);
     playModeBtn.classList.toggle('is-selected', state.playMode !== 'sequence');
-    if (playerTitle) { playerTitle.textContent = title; playerTitle.title = title; }
-    if (playerArtist) { playerArtist.textContent = artist; playerArtist.title = artist; }
-    const cover = $('playerCover');
-    const coverUrl = song?.cover_url || '/static/player-illustration.png';
-    if (cover && cover.dataset.cover !== coverUrl) {
-        cover.dataset.cover = coverUrl;
-        cover.onerror = () => { cover.onerror = null; cover.src = '/static/player-illustration.png'; };
-        cover.src = coverUrl;
+    if (playerTitle.textContent !== title || playerArtist.textContent !== artist) {
+        playerTitle.textContent = playerTitle.title = title;
+        playerArtist.textContent = playerArtist.title = artist;
+        fadeContent(playerTitle.parentElement);
+    }
+    const coverUrl = song?.cover_url || initialCoverUrl;
+    if ((playerCover.dataset.cover || initialCoverUrl) !== coverUrl) {
+        playerCover.dataset.cover = coverUrl;
+        playerCover.onerror = () => { playerCover.onerror = null; playerCover.src = initialCoverUrl; };
+        playerCover.src = coverUrl;
     }
 
     renderLyrics(song);
@@ -304,8 +373,8 @@ function syncImmersivePlayerUI() {
 }
 
 function openLibrary() {
-    libraryPanel.scrollIntoView({ block: 'nearest' });
-    (state.currentTab === 'queue' ? queueBtn : libraryPanel.querySelector('.tab.active'))?.focus({ preventScroll: true });
+    libraryPanel.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    libraryPanel.querySelector('.tab.active')?.focus({ preventScroll: true });
 }
 
 function syncLyricsEffect() {
@@ -444,8 +513,11 @@ function syncDownloadCurrentButton() {
     const song = state.currentSong;
     const downloaded = song && (song.downloaded || findSongInState(song.id)?.downloaded);
     const streamingOnly = song?.download_allowed === false;
-    downloadCurrentBtn.disabled = !song || Boolean(downloaded) || streamingOnly;
-    downloadCurrentBtn.title = downloaded ? '已保存到本地' : streamingOnly ? '此来源仅供在线播放' : '下载当前歌曲';
+    const downloading = song && downloadsInProgress.has(song.id);
+    downloadCurrentBtn.hidden = !song || streamingOnly;
+    downloadCurrentBtn.disabled = !song || Boolean(downloaded) || streamingOnly || downloading;
+    downloadCurrentBtn.title = downloaded ? '已保存到本地' : downloading ? '正在下载' : streamingOnly ? '此来源仅供在线播放' : '下载当前歌曲';
+    downloadCurrentBtn.setAttribute('aria-label', downloadCurrentBtn.title);
 }
 
 function updateBatchSelectionUI() {
@@ -454,9 +526,11 @@ function updateBatchSelectionUI() {
         item.classList.toggle('selected', selected);
         const btn = item.querySelector('.song-select-btn');
         if (btn) {
+            const title = item.querySelector('.song-title').textContent;
+            const label = state.isBatchMode ? '选择' : item.querySelector('.play-btn-item').title;
+            item.querySelector('.song-info').setAttribute('aria-label', `${label} ${title}`);
             btn.classList.toggle('selected', selected);
             btn.setAttribute('aria-pressed', selected ? 'true' : 'false');
-            btn.innerHTML = selected ? ICON.check : '';
         }
     });
 }
@@ -484,9 +558,11 @@ function syncBatchToolbar() {
     $('manageDownloadsBtn').setAttribute('aria-pressed', String(state.isBatchMode && isDownloadsTab));
     $('manageDownloadsBtn').disabled = busy || state.localMusic.length === 0;
     listFilterInput.disabled = busy && isDownloadsTab;
-    $('favoriteCount').textContent = `${state.favorites.length} 首收藏`;
     const favoriteTargets = state.currentTab === 'favorites' ? filterSongs(state.favorites) : state.favorites;
+    $('manageFavoritesBtn').hidden = !state.isBatchMode && !favoriteTargets.length;
+    $('manageDownloadsBtn').hidden = !state.isBatchMode && !hasVisibleSongs;
     $('playFavoritesBtn').disabled = favoriteTargets.length === 0;
+    $('playFavoritesBtn').hidden = !favoriteTargets.length || state.isBatchMode;
     $('playFavoritesBtn').textContent = state.listFilters.favorites?.trim() ? '播放筛选结果' : '播放收藏';
     batchCount.textContent = `已选择 ${count} 首`;
     batchCancelBtn.disabled = busy || count === 0;
@@ -496,7 +572,7 @@ function syncBatchToolbar() {
     }
     batchPlaylistBtn.hidden = isDownloadsTab;
     batchPlaylistBtn.disabled = busy || count === 0;
-    batchDownloadBtn.hidden = false;
+    batchDownloadBtn.hidden = !isDownloadsTab && !favoriteTargets.some(song => canDownloadSong(song) && (!count || state.selectedSongIds.has(song.id)));
     batchDownloadBtn.textContent = isDownloadsTab ? (busy ? '处理中…' : '删除选中') : '本地下载';
     batchDownloadBtn.classList.toggle('danger', isDownloadsTab);
     batchDownloadBtn.disabled = busy || count === 0;
@@ -576,8 +652,6 @@ function sameSongIdentity(a, b) {
 // ─── 选项卡切换 ─────────────────────────────────────────
 
 function syncLibraryNavigation() {
-    queueBtn.classList.toggle('is-selected', state.currentTab === 'queue');
-    queueBtn.setAttribute('aria-pressed', String(state.currentTab === 'queue'));
     const current = state.currentTab === 'playlist-detail' ? 'playlists' : state.currentTab;
     document.querySelectorAll('.tab').forEach(tab => {
         const active = tab.dataset.tab === current;
@@ -630,12 +704,17 @@ function hideUnavailableSong(song) {
 }
 
 
-function filterSongs(songs) {
-    const query = normalizeSearchText(state.listFilters[getListFilterKey()] || '');
+function filterSongs(songs, key = getListFilterKey()) {
+    const query = normalizeSearchText(state.listFilters[key] || '');
     const tokens = query.split(' ').filter(Boolean);
-    const filtered = songs.filter(song => !(song.unavailable_until > Date.now()) && tokens.every(token => normalizeSearchText(`${song.title} ${song.artist}`).includes(token)));
-    if (!$('listFilterBar').hidden) $('listFilterCount').textContent = query ? `${filtered.length} / ${songs.length} 首` : `${filtered.length} 首`;
-    return filtered;
+    return songs.filter(song => !(song.unavailable_until > Date.now()) && tokens.every(token => normalizeSearchText(`${song.title} ${song.artist}`).includes(token)));
+}
+
+function syncListFilterCount(tab, total, visible) {
+    if (state.currentTab !== tab) return;
+    const filtering = Boolean(state.listFilters[getListFilterKey()]?.trim());
+    $('listFilterBar').hidden = !total && !filtering;
+    $('listFilterCount').textContent = filtering ? `${visible} / ${total} 首` : tab === 'playlist-detail' ? '' : `${visible} 首`;
 }
 
 listFilterInput.addEventListener('input', () => {
@@ -671,11 +750,12 @@ function rankSearchResults(songs, keyword) {
 
 document.querySelectorAll('.tab').forEach(tab => {
     tab.addEventListener('click', async () => {
+        const tabName = tab.dataset.tab;
+        if (tabName === state.currentTab) return;
         const scroller = libraryPanel.querySelector('.main-layout');
         state.libraryScroll[state.currentTab] = scroller.scrollTop;
         document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
 
-        const tabName = tab.dataset.tab;
         state.currentTab = tabName;
         syncLibraryNavigation();
 
@@ -683,15 +763,21 @@ document.querySelectorAll('.tab').forEach(tab => {
         if (target) target.classList.add('active');
 
         clearBatchSelection();
-        if (tabName === 'favorites') await loadFavorites();
+        let loading;
+        if (tabName === 'favorites') loading = loadFavorites();
         else if (tabName === 'queue') renderQueue();
         else if (tabName === 'playlists') renderPlaylistsTab();
-        else if (tabName === 'downloads') await loadDownloads();
-        if (state.currentTab === tabName) scroller.scrollTop = state.libraryScroll[tabName] || 0;
+        else if (tabName === 'downloads') loading = loadDownloads();
+        const savedTop = state.libraryScroll[tabName] || 0;
+        scroller.scrollTop = savedTop;
+        const restoredTop = scroller.scrollTop;
+        if (loading && savedTop > restoredTop) {
+            await loading;
+            if (state.currentTab === tabName && scroller.scrollTop === restoredTop) scroller.scrollTop = savedTop;
+        }
     });
 });
 
-if (queueBtn) queueBtn.addEventListener('click', showQueue);
 ['manageFavoritesBtn', 'manageDownloadsBtn'].forEach(id => {
     $(id).addEventListener('click', () => {
         if (state.isDeletingDownloads) return;
@@ -701,7 +787,13 @@ if (queueBtn) queueBtn.addEventListener('click', showQueue);
 });
 $('playFavoritesBtn').addEventListener('click', () => {
     const songs = filterSongs(state.favorites);
-    if (songs.length) playSong(songs[0].id);
+    if (!songs.length) return;
+    if (state.currentSong?.id === songs[0].id && (state.isPlaying || state.isLoading)) {
+        syncQueueForSong(songs[0].id);
+        savePlaybackState();
+        return;
+    }
+    playSong(songs[0].id);
 });
 $('locatePlayingBtn').addEventListener('click', () => {
     $('queueSongs').querySelector('.playing-now')?.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
@@ -709,40 +801,46 @@ $('locatePlayingBtn').addEventListener('click', () => {
 
 function focusMusicSearch() {
     if (matchMedia('(max-width: 1100px)').matches) searchInput.scrollIntoView({ block: 'center' });
-    requestAnimationFrame(() => { searchInput.focus({ preventScroll: true }); searchInput.select(); });
+    searchInput.focus({ preventScroll: true });
+    searchInput.select();
 }
 
+document.querySelector('.mobile-navigation').addEventListener('click', event => {
+    const link = event.target.closest('a');
+    if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (link.hash === '#searchHeading') focusMusicSearch();
+    else if (link.hash === '#libraryPanel') openLibrary();
+    else {
+        playerBar.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+        playerBar.focus({ preventScroll: true });
+    }
+});
+
 function renderQueue() {
-    $('queueSummary').textContent = `${state.queue.length} 首 · ${playModeBtn.title}`;
-    $('queueSongs').innerHTML = state.queue.length
+    $('queueSummary').textContent = state.queue.length ? `${state.queue.length} 首 · ${playModeBtn.title}` : '';
+    replaceSongRows($('queueSongs'), state.queue.length
         ? state.queue.map(song => buildSongItem(song, { hideSelectBtn: true })).join('')
-        : `<div class="empty-state">${ICON.queue}<p>还没有播放队列</p><p class="hint">从收藏、搜索或歌单播放一首歌，就会出现在这里</p></div>`;
+        : `<div class="empty-state">${ICON.queue}<p>还没有播放队列</p><p class="hint">播放一首歌后，队列会显示接下来要播的歌曲</p></div>`);
     updatePlayButtons();
 }
 
-function showQueue() {
-    state.libraryScroll[state.currentTab] = libraryPanel.querySelector('.main-layout').scrollTop;
-    state.currentTab = 'queue';
-    clearBatchSelection();
-    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.toggle('active', tab.id === 'tab-queue'));
-    syncLibraryNavigation();
-    renderQueue();
-    openLibrary();
-}
-
 function pauseLyricFollow() {
-    if (!lyricsList.querySelector('.lyric-line')) return;
+    if (!state.timedLyrics.length || !state.lyricsFollow) return;
     state.lyricsFollow = false;
+    lyricsList.scrollTo({ top: lyricsList.scrollTop, behavior: 'instant' });
     $('resumeLyricsBtn').hidden = false;
 }
 lyricsList.addEventListener('wheel', pauseLyricFollow, { passive: true });
-lyricsList.addEventListener('touchstart', pauseLyricFollow, { passive: true });
+lyricsList.addEventListener('touchmove', pauseLyricFollow, { passive: true });
+lyricsList.addEventListener('pointerdown', event => {
+    if (event.pointerType === 'mouse' && event.target === lyricsList && event.offsetX >= lyricsList.clientWidth) pauseLyricFollow();
+});
 lyricsList.addEventListener('keydown', event => {
     if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) pauseLyricFollow();
 });
 $('resumeLyricsBtn').addEventListener('click', () => {
     state.lyricsFollow = true;
-    state.currentLyricIndex = -1;
     $('resumeLyricsBtn').hidden = true;
     syncLyricHighlight(true);
     lyricsList.focus({ preventScroll: true });
@@ -750,19 +848,25 @@ $('resumeLyricsBtn').addEventListener('click', () => {
 // Keep keyboard focus in the visible sheet or dialog and restore it on close.
 function focusDialog(overlay) {
     overlay.returnFocus = document.activeElement;
-    requestAnimationFrame(() => {
-        if (overlay.isConnected && overlay.style.display !== 'none') {
-            overlay.querySelector('input, button')?.focus();
-        }
-    });
+    overlay.inert = false;
+    overlay.classList.remove('is-closing');
+    overlay.querySelector('input:not(:disabled), button:not(:disabled)')?.focus({ preventScroll: true });
 }
 
 function dismissDialog(overlay) {
-    if (overlay.classList.contains('add-to-pl-overlay')) overlay.remove();
-    else overlay.style.display = 'none';
+    if (overlay.inert || overlay.dataset.submitting === 'true') return;
     const target = overlay.returnFocus;
-    if (target?.isConnected && target.getClientRects().length) target.focus();
-    else libraryPanel.querySelector('.tab.active')?.focus();
+    overlay.inert = true;
+    overlay.classList.add('is-closing');
+    overlay.style.display = 'none';
+    if (target?.isConnected && target !== document.body && !target.disabled && target.getClientRects().length) target.focus({ preventScroll: true });
+    else libraryPanel.querySelector('.tab.active')?.focus({ preventScroll: true });
+    if (overlay.classList.contains('add-to-pl-overlay')) {
+        overlay.removeAttribute('id');
+        const exit = overlay.getAnimations().find(animation => animation.transitionProperty === 'display');
+        if (exit) exit.finished.then(() => overlay.remove(), () => overlay.remove());
+        else overlay.remove();
+    }
 }
 
 document.addEventListener('keydown', e => {
@@ -802,14 +906,17 @@ searchBtn.addEventListener('click', () => {
     doSearch();
 });
 searchInput.addEventListener('input', () => {
-    if (state.isSearching && searchInput.value.trim() !== state.pendingKeyword) {
-        state.searchController?.abort();
-        state.searchResults = [];
-        state.lastSearchKeyword = '';
-        state.searchError = '';
-        state.searchSourceErrors = {};
-        setSearchLoading(false);
-    }
+    const keyword = searchInput.value.trim();
+    if (keyword && (!state.isSearching || keyword === state.pendingKeyword)) return;
+    state.searchController?.abort();
+    state.searchController = null;
+    state.searchResults = [];
+    state.lastSearchKeyword = '';
+    state.searchError = '';
+    state.searchSourceErrors = {};
+    searchHasMore = false;
+    searchMoreLoading = false;
+    setSearchLoading(false);
 });
 searchInput.addEventListener('compositionstart', () => {
     isSearchComposing = true;
@@ -873,11 +980,9 @@ async function doSearch(options = {}) {
     const q = searchInput.value.trim();
     searchInput.value = q;
     if (!q) {
-        if (!options.silentEmpty) toast('请输入搜索关键词', true);
+        if (!options.silentEmpty) searchInput.focus();
         return;
     }
-    if (state.lastSearchSubmission?.keyword === q && Date.now() - state.lastSearchSubmission.at < 350) return;
-    state.lastSearchSubmission = { keyword: q, at: Date.now() };
     if (state.isSearching && q === state.pendingKeyword) return;
     state.searchController?.abort();
     const controller = new AbortController();
@@ -888,6 +993,7 @@ async function doSearch(options = {}) {
     state.searchResults = [];
     searchPage = 1;
     searchHasMore = false;
+    searchMoreLoading = false;
     state.lastSearchKeyword = '';
     setSearchLoading(true);
     try {
@@ -905,7 +1011,7 @@ async function doSearch(options = {}) {
             if (snapshot.error) throw new Error(snapshot.error);
             state.searchResults = rankSearchResults((snapshot.results || []).filter(song => !song.is_preview
                 && !(state.unavailableSources?.get(getSongIdentityKey(song) || song.id) > Date.now())), q);
-            searchHasMore = state.searchResults.length >= SEARCH_SOURCE_LIMIT;
+            searchHasMore = snapshot.has_more ?? state.searchResults.length >= SEARCH_SOURCE_LIMIT;
             state.searchSourceErrors = snapshot.source_errors || {};
             state.lastSearchKeyword = q;
             finished = Boolean(snapshot.done);
@@ -926,23 +1032,38 @@ async function doSearch(options = {}) {
 async function loadMoreSearch() {
     if (searchMoreLoading || !searchHasMore || !state.lastSearchKeyword) return;
     const keyword = state.lastSearchKeyword;
+    const controller = state.searchController;
+    const moreButton = $('loadMoreSearchBtn');
+    const hadFocus = Boolean(moreButton && moreButton === document.activeElement);
+    let firstAddedId;
     searchMoreLoading = true;
     syncSearchPreview();
     try {
         const params = new URLSearchParams({ q: keyword, source_limit: String(SEARCH_SOURCE_LIMIT), page: String(searchPage + 1) });
-        const response = await fetch(`/api/search?${params}`, { signal: AbortSignal.timeout(15000) });
+        const signal = AbortSignal.timeout(15000);
+        const response = await fetch(`/api/search?${params}`, { signal: controller ? AbortSignal.any([controller.signal, signal]) : signal });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || '加载失败');
-        if (keyword !== state.lastSearchKeyword) return;
+        if (controller !== state.searchController || keyword !== state.lastSearchKeyword) return;
         const ids = new Set(state.searchResults.map(song => song.id));
-        state.searchResults.push(...(data.results || []).filter(song => !ids.has(song.id)));
+        const newSongs = (data.results || []).filter(song => !ids.has(song.id) && !song.is_preview
+            && !(state.unavailableSources?.get(getSongIdentityKey(song) || song.id) > Date.now()));
+        firstAddedId = newSongs[0]?.id;
+        state.searchResults.push(...rankSearchResults(newSongs, keyword));
+        syncCachedSongFlags();
         searchPage += 1;
         searchHasMore = Boolean(data.has_more);
     } catch (error) {
-        toast(error.message || '加载更多失败', true);
+        if (controller === state.searchController) toast(error.message || '加载更多失败', true);
     } finally {
-        searchMoreLoading = false;
-        syncSearchPreview();
+        if (controller === state.searchController) {
+            searchMoreLoading = false;
+            syncSearchPreview();
+            if (hadFocus && document.activeElement === document.body) {
+                const added = firstAddedId && $('searchMiniResults').querySelector(`[data-song-id="${CSS.escape(firstAddedId)}"] .song-info`);
+                (added || $('loadMoreSearchBtn') || searchInput).focus({ preventScroll: !added });
+            }
+        }
     }
 }
 
@@ -956,21 +1077,18 @@ async function resumeGD() {
 }
 
 async function updateGDServerStatus() {
+    const message = 'GD 音乐台搜索服务暂时不可用，请稍后重试。';
+    if (state.isSearching || (state.searchError !== message && state.searchSourceErrors.netease !== message)) return;
+    const controller = state.searchController;
     try {
         const response = await fetch('/api/gd-status', { cache: 'no-store', signal: AbortSignal.timeout(15000) });
         if (!response.ok) return;
         const data = await response.json();
-        const notice = $('gdServerNotice');
-        if (!notice || typeof data.server_error !== 'boolean') return;
-        notice.hidden = !data.server_error;
-        if (!data.server_error) {
-            const message = 'GD 音乐台的服务器端出现问题，请稍后重试。';
-            if (state.searchError === message) state.searchError = '';
-            for (const [key, value] of Object.entries(state.searchSourceErrors)) {
-                if (value === message) delete state.searchSourceErrors[key];
-            }
-            syncSearchPreview();
-        }
+        if (data.server_error !== false || controller !== state.searchController) return;
+        if (state.searchError === message) state.searchError = '';
+        if (state.searchSourceErrors.netease === message) delete state.searchSourceErrors.netease;
+        if (!state.searchResults.length) state.lastSearchKeyword = '';
+        syncSearchPreview();
     } catch { /* Keep the last confirmed status when the local service cannot be reached. */ }
 }
 
@@ -983,14 +1101,14 @@ function syncSearchPreview() {
     const status = $('searchStatus');
     const count = $('searchResultCount');
     if (!results || !status || !count) return;
-    count.textContent = `${state.searchResults.length} 首`;
+    count.textContent = state.searchResults.length ? `${state.searchResults.length} 首` : '';
     results.setAttribute('aria-busy', String(state.isSearching));
     const partial = Object.keys(state.searchSourceErrors || {}).length > 0;
     const sourceMessage = Object.values(state.searchSourceErrors || {}).join('；');
-    if ($('gdResumeBtn') && /拒绝访问|要求验证/.test(sourceMessage)) $('gdResumeBtn').hidden = false;
+    if ($('gdResumeBtn') && /拒绝访问|要求验证/.test(`${state.searchError} ${sourceMessage}`)) $('gdResumeBtn').hidden = false;
     status.textContent = state.isSearching
         ? (state.searchResults.length ? '正在搜索…' : '正在搜索音源…')
-        : state.searchError || (partial ? sourceMessage : state.lastSearchKeyword ? `“${state.lastSearchKeyword}”的搜索结果` : '搜索结果');
+        : state.searchError || (partial ? sourceMessage : state.lastSearchKeyword ? (state.searchResults.length ? `“${state.lastSearchKeyword}”的搜索结果` : '没有找到匹配歌曲') : '');
     const focused = results.contains(document.activeElement) ? document.activeElement : null;
     const focusedId = focused?.closest('.song-item')?.dataset.songId;
     const focusedClass = focused?.className?.split(' ')[0];
@@ -1010,7 +1128,7 @@ function syncSearchPreview() {
     if (!state.isSearching && (state.searchError || partial)) {
         results.insertAdjacentHTML('beforeend', '<button class="btn-secondary search-retry" onclick="doSearch()">重新搜索</button>');
     }
-    if (!state.isSearching && searchHasMore) results.insertAdjacentHTML('beforeend', `<button class="btn-secondary search-retry" onclick="loadMoreSearch()" ${searchMoreLoading ? 'disabled' : ''}>${searchMoreLoading ? '加载中…' : '加载更多'}</button>`);
+    if (!state.isSearching && searchHasMore) results.insertAdjacentHTML('beforeend', `<button id="loadMoreSearchBtn" class="btn-secondary search-retry" onclick="loadMoreSearch()" ${searchMoreLoading ? 'disabled' : ''}>${searchMoreLoading ? '加载中…' : '加载更多'}</button>`);
     if (focusedId && focusedClass) results.querySelector(`[data-song-id="${CSS.escape(focusedId)}"] .${CSS.escape(focusedClass)}`)?.focus({ preventScroll: true });
 }
 
@@ -1098,25 +1216,30 @@ async function loadLocalMusic() {
 
 async function loadFavorites() {
     const container = $('favSongs');
+    const revision = state.favoritesRevision;
     if (!container.querySelector('.song-item')) container.innerHTML = `<div class="loading">${ICON.loader}加载中</div>`;
 
     try {
         const data = await fetchJSON('/api/favorites');
+        if (revision !== state.favoritesRevision) return;
         state.favorites = data.favorites || [];
         syncCachedSongFlags();
         renderFavorites();
     } catch (err) {
-        container.innerHTML = `<div class="empty-state" role="alert">${ICON.alert}<p>收藏加载失败，已有收藏不会丢失</p><button class="btn-secondary" onclick="loadFavorites()">重新加载</button></div>`;
+        if (revision === state.favoritesRevision) {
+            container.innerHTML = `<div class="empty-state" role="alert">${ICON.alert}<p>收藏加载失败，已有收藏不会丢失</p><button class="btn-secondary" onclick="loadFavorites()">重新加载</button></div>`;
+        }
     } finally {
         syncBatchToolbar();
     }
 }
 
 function renderFavorites() {
-    const songs = filterSongs(state.favorites);
-    $('favSongs').innerHTML = songs.length ? songs.map(fav => buildSongItem({ ...fav, favorited: true })).join('')
+    const songs = filterSongs(state.favorites, 'favorites');
+    syncListFilterCount('favorites', state.favorites.length, songs.length);
+    replaceSongRows($('favSongs'), songs.length ? songs.map(fav => buildSongItem({ ...fav, favorited: true })).join('')
         : state.favorites.length ? `<div class="empty-state">${ICON.musicNote}<p>没有匹配的收藏，试试其他歌名或歌手</p></div>`
-        : `<div class="empty-state">${ICON.musicNote}<p>还没有收藏的歌曲</p><p class="hint">搜索喜欢的歌曲，点击爱心即可收藏</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button></div>`;
+        : `<div class="empty-state">${ICON.musicNote}<p>还没有收藏的歌曲</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button></div>`);
     updateBatchSelectionUI();
     syncBatchToolbar();
 }
@@ -1125,7 +1248,8 @@ function renderFavorites() {
 
 async function loadDownloads() {
     const container = $('downloadSongs');
-    container.innerHTML = `<div class="loading">${ICON.loader}加载中</div>`;
+    const revision = state.favoritesRevision;
+    if (!container.querySelector('.song-item')) container.innerHTML = `<div class="loading">${ICON.loader}加载中</div>`;
 
     try {
         const [musicData, favData] = await Promise.all([
@@ -1133,7 +1257,7 @@ async function loadDownloads() {
             fetchJSON('/api/favorites'),
         ]);
         state.localMusic = musicData.music || [];
-        state.favorites = favData.favorites || [];
+        if (revision === state.favoritesRevision) state.favorites = favData.favorites || [];
 
         const favIds = new Set(state.favorites.map(f => f.id));
         for (const s of state.localMusic) {
@@ -1151,15 +1275,30 @@ async function loadDownloads() {
 }
 
 function renderDownloads() {
-    const songs = filterSongs(state.localMusic);
-    $('downloadSongs').innerHTML = songs.length ? songs.map(song => buildSongItem(song)).join('')
+    const songs = filterSongs(state.localMusic, 'downloads');
+    syncListFilterCount('downloads', state.localMusic.length, songs.length);
+    replaceSongRows($('downloadSongs'), songs.length ? songs.map(song => buildSongItem(song)).join('')
         : state.localMusic.length ? `<div class="empty-state">${ICON.musicNote}<p>没有匹配的下载歌曲</p></div>`
-        : `<div class="empty-state">${ICON.musicNote}<p>还没有下载过歌曲</p><p class="hint">在歌曲的更多操作中选择「下载到本地」</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button></div>`;
+        : `<div class="empty-state">${ICON.musicNote}<p>还没有本地歌曲</p></div>`);
     updateBatchSelectionUI();
     syncBatchToolbar();
 }
 
 // ─── 构建歌曲项 HTML ────────────────────────────────────
+
+function replaceSongRows(container, html) {
+    const focused = document.activeElement;
+    const row = container.contains(focused) ? focused.closest('.song-item') : null;
+    const index = row ? Array.from(container.querySelectorAll('.song-item')).indexOf(row) : -1;
+    container.innerHTML = html;
+    if (!row) return;
+    const rows = Array.from(container.querySelectorAll('.song-item'));
+    const next = rows.find(item => item.dataset.songId === row.dataset.songId) || rows[Math.min(index, rows.length - 1)];
+    const control = focused.classList[0];
+    const target = (control && next?.querySelector(`.${CSS.escape(control)}`)) || next?.querySelector('.song-info')
+        || container.querySelector('button') || libraryPanel.querySelector('.tab.active');
+    target?.focus({ preventScroll: true });
+}
 
 function songDescription(song) {
     return [song.artist || '未知歌手', song.album, song.version].filter(Boolean).join(' · ');
@@ -1172,19 +1311,23 @@ function buildSongItem(song, options = {}) {
     const playIcon = isPlaying && state.isPlaying ? ICON.pause : ICON.play;
     const favorited = isSongFavorited(song);
 
-    const playAction = `playSong('${song.id}'${options.fromSearch ? ', { fromSearch: true }' : ''})`;
+    const id = escapeHtml(JSON.stringify(song.id));
+    const playlistId = escapeHtml(JSON.stringify(options.playlistId || ''));
+    const playAction = `playSong(${id}${options.fromSearch ? ', { fromSearch: true }' : ''})`;
+    const selectAction = `toggleSongSelection(${id})`;
+    const playLabel = isPlaying && state.isPlaying ? '暂停' : '播放';
     const playingClass = isPlaying ? 'playing-now' : '';
     return `
-        <div class="song-item ${playingClass}${isSelected ? ' selected' : ''}" data-song-id="${song.id}">
-            ${hideSelectBtn ? '' : `<button class="song-select-btn${isSelected ? ' selected' : ''}" ${state.isDeletingDownloads ? 'disabled' : ''} onclick="toggleSongSelection('${song.id}')" aria-label="选择 ${escapeHtml(song.title || '歌曲')}" aria-pressed="${isSelected ? 'true' : 'false'}">${isSelected ? ICON.check : ''}</button>`}
+        <div class="song-item ${playingClass}${isSelected ? ' selected' : ''}" data-song-id="${escapeHtml(song.id)}">
+            ${hideSelectBtn ? '' : `<button class="song-select-btn${isSelected ? ' selected' : ''}" ${state.isDeletingDownloads ? 'disabled' : ''} onclick="${selectAction}" aria-label="选择 ${escapeHtml(song.title || '歌曲')}" aria-pressed="${isSelected ? 'true' : 'false'}">${ICON.check}</button>`}
             <button class="play-btn-item song-cover ${isPlaying ? 'playing' : ''}" onclick="${playAction}" title="${isPlaying && state.isPlaying ? '暂停' : '播放'}" aria-label="${isPlaying && state.isPlaying ? '暂停' : '播放'} ${escapeHtml(song.title)}">${song.cover_url || options.fromSearch ? `<img loading="lazy" src="${escapeHtml(song.cover_url || '/static/player-illustration.png')}" alt="" onerror="this.onerror=null;this.src='/static/player-illustration.png'">` : ''}${playIcon}</button>
-            <button class="song-info" onclick="${hideSelectBtn ? '' : `state.isBatchMode ? toggleSongSelection('${song.id}') : `}${playAction}" aria-label="${hideSelectBtn ? '播放或暂停' : '播放或选择'} ${escapeHtml(song.title)}">
+            <button class="song-info" onclick="${hideSelectBtn ? '' : `state.isBatchMode ? ${selectAction} : `}${playAction}" aria-label="${!hideSelectBtn && state.isBatchMode ? '选择' : playLabel} ${escapeHtml(song.title)}">
                 <span class="song-title" title="${escapeHtml(song.title || '未知歌曲')}">${escapeHtml(song.title || '未知歌曲')}</span>
                 <span class="song-artist" title="${escapeHtml(songDescription(song))}">${escapeHtml(songDescription(song))}</span>
             </button>
             <div class="song-actions">
-                <button class="fav-btn" onclick="toggleFavorite('${song.id}')" title="${favorited ? '取消收藏' : '收藏'}" aria-label="${favorited ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorited}">${ICON.heart}</button>
-                <button class="more-btn" popovertarget="songActionsPopover" onclick="prepareSongActions('${song.id}', '${options.playlistId || ''}', this)" title="更多操作" aria-label="更多操作 ${escapeHtml(song.title)}">${ICON.more}</button>
+                <button class="fav-btn" onclick="toggleFavorite(${id})" title="${favorited ? '取消收藏' : '收藏'}" aria-label="${favorited ? '取消收藏' : '收藏'} ${escapeHtml(song.title)}" aria-pressed="${favorited}">${ICON.heart}</button>
+                <button class="more-btn" popovertarget="songActionsPopover" onclick="prepareSongActions(${id}, ${playlistId}, this)" title="更多操作" aria-label="更多操作 ${escapeHtml(song.title)}">${ICON.more}</button>
             </div>
         </div>`;
 }
@@ -1200,21 +1343,25 @@ function prepareSongActions(songId, playlistId, trigger) {
     menu.append(title);
     const actions = [
         { label: '加入歌单', icon: ICON.plus, run: () => showAddToPlaylist(songId) },
-        { label: song.downloaded ? '已保存到本地' : song.download_allowed === false ? '仅供在线播放' : '下载到本地', icon: ICON.download, disabled: song.downloaded || song.download_allowed === false, run: () => downloadSong(songId) },
     ];
-    if (playlistId) actions.push({ label: '从歌单移除', icon: ICON.minus, run: () => removeSongFromPlaylist(playlistId, songId) });
-    if (song.downloaded) actions.push({ label: '删除本地文件', icon: ICON.trash, danger: true, run: () => deleteLocalSong(songId) });
+    if (canDownloadSong(song)) actions.push({ label: '下载到本地', icon: ICON.download, run: () => downloadSong(songId) });
+    if (playlistId) actions.push({ label: '从歌单移除', icon: ICON.minus, run: () => removeSongFromPlaylist(playlistId, songId, trigger) });
+    if (song.downloaded && trigger.closest('#downloadSongs')) actions.push({ label: '删除本地文件', icon: ICON.trash, danger: true, run: () => deleteLocalSong(songId) });
     for (const action of actions) {
         const button = document.createElement('button');
         button.className = `pl-option${action.danger ? ' danger' : ''}`;
         button.innerHTML = `${action.icon}<span>${action.label}</span>`;
-        button.disabled = !!action.disabled;
-        button.addEventListener('click', () => { menu.hidePopover(); action.run(); });
+        button.addEventListener('click', () => { menu.hidePopover(); trigger.focus({ preventScroll: true }); action.run(); });
         menu.append(button);
     }
     const rect = trigger.getBoundingClientRect();
+    const menuHeight = Math.min(innerHeight - 24, actions.length * 48 + 82);
+    const opensAbove = rect.bottom + 8 + menuHeight > innerHeight - 12 && rect.top - 8 - menuHeight >= 12;
     menu.style.left = `${Math.max(12, Math.min(rect.right - 240, innerWidth - 252))}px`;
-    menu.style.top = `${Math.max(12, Math.min(rect.bottom + 8, innerHeight - (actions.length * 48 + 82)))}px`;
+    menu.style.top = opensAbove ? 'auto' : `${Math.max(12, Math.min(rect.bottom + 8, innerHeight - menuHeight - 12))}px`;
+    menu.style.bottom = opensAbove ? `${innerHeight - rect.top + 8}px` : 'auto';
+    menu.style.setProperty('--menu-origin', opensAbove ? 'bottom right' : 'top right');
+    menu.style.setProperty('--menu-offset', opensAbove ? '4px' : '-4px');
 }
 
 function escapeHtml(text) {
@@ -2054,8 +2201,7 @@ function togglePlayPause() {
     if (state.isLoading) return;
     if (state.playbackError) { retryCurrentPlayback(); return; }
     if (!state.currentSong && !audio.src) {
-        toast('请先在音乐库中选择歌曲', true);
-        openLibrary();
+        focusMusicSearch();
         return;
     }
 
@@ -2194,6 +2340,7 @@ playModeBtn.addEventListener('click', () => {
     const currentIdx = modes.indexOf(state.playMode);
     state.playMode = modes[(currentIdx + 1) % modes.length];
     playModeBtn.innerHTML = icons[state.playMode];
+    fadeContent(playModeBtn.firstElementChild);
     playModeBtn.title = labels[state.playMode];
     playModeBtn.setAttribute('aria-label', playModeBtn.title);
     playModeBtn.classList.toggle('is-selected', state.playMode !== 'sequence');
@@ -2209,7 +2356,7 @@ function updateRangeFill(el, color1, color2) {
     const c1 = color1 || 'var(--accent)';
     const c2 = color2 || 'rgba(255,255,255,0.12)';
     // Native range thumbs travel within the track, inset by half their width.
-    const stop = el === volumeBar ? `calc(${pct}% + var(--volume-thumb-size) * ${0.5 - pct / 100})` : `${pct}%`;
+    const stop = `calc(${pct}% + var(--thumb-size) * ${0.5 - pct / 100})`;
     el.style.setProperty('--range-fill', `linear-gradient(to right, ${c1} 0%, ${c1} ${stop}, ${c2} ${stop}, ${c2} 100%)`);
 }
 
@@ -2222,6 +2369,7 @@ function isIncompleteAudio(song, actualDuration) {
 
 audio.addEventListener('loadedmetadata', () => {
     if (!state.currentSong || !Number.isFinite(audio.duration)) return;
+    totalTime.textContent = formatTime(audio.duration);
     state.currentSong.actual_duration = audio.duration;
     if (isIncompleteAudio(state.currentSong, audio.duration)) {
         const key = getPlayableInfoKey(state.currentSong);
@@ -2235,15 +2383,17 @@ audio.addEventListener('loadedmetadata', () => {
     }
 });
 
-audio.addEventListener('timeupdate', () => {
-    if (audio.duration && !state.isSeeking) {
-        progressBar.value = (audio.currentTime / audio.duration) * 100;
-        currentTime.textContent = formatTime(audio.currentTime);
-        totalTime.textContent = formatTime(audio.duration);
-        updateRangeFill(progressBar);
-        syncLyricHighlight();
-    }
-});
+function syncPlaybackProgress() {
+    if (!Number.isFinite(audio.duration) || !audio.duration || state.isSeeking) return;
+    progressBar.value = (audio.currentTime / audio.duration) * 100;
+    const time = formatTime(audio.currentTime);
+    if (currentTime.textContent !== time) currentTime.textContent = time;
+    const duration = formatTime(audio.duration);
+    if (totalTime.textContent !== duration) totalTime.textContent = duration;
+    updateRangeFill(progressBar);
+    syncLyricHighlight();
+}
+audio.addEventListener('timeupdate', syncPlaybackProgress);
 
 function seekAudio() {
     if (!audio.duration) return;
@@ -2265,7 +2415,7 @@ function seekAudio() {
     }
 
     audio.currentTime = targetTime;
-    syncLyricHighlight();
+    syncLyricHighlight(true);
 }
 
 function clearSeekFeedback() {
@@ -2294,7 +2444,7 @@ progressBar.addEventListener('change', () => {
 
 progressBar.addEventListener('pointercancel', () => {
     state.isSeeking = false;
-    updateRangeFill(progressBar);
+    syncPlaybackProgress();
 });
 
 audio.addEventListener('seeked', clearSeekFeedback);
@@ -2357,37 +2507,30 @@ function handleKeyboardShortcuts(e) {
 document.addEventListener('keydown', handleKeyboardShortcuts);
 
 function updatePlayButtons() {
-    $('locatePlayingBtn').disabled = !state.currentSong || !state.queue.length;
-    const setIcon = (button, icon) => {
-        const existing = button.querySelector?.('svg');
-        if (existing) existing.outerHTML = icon;
-        else if (button.insertAdjacentHTML) button.insertAdjacentHTML('beforeend', icon);
-        else button.innerHTML = icon;
-    };
+    $('locatePlayingBtn').disabled = !state.queue.some(song => song.id === state.currentSong?.id);
+    $('locatePlayingBtn').hidden = $('locatePlayingBtn').disabled;
     document.querySelectorAll('.play-btn-item').forEach(btn => {
-        btn.classList.remove('playing');
-        setIcon(btn, ICON.play);
-        btn.title = '播放';
-        btn.setAttribute('aria-label', '播放 ' + (btn.closest('.song-item')?.querySelector('.song-title')?.textContent || '歌曲'));
+        const item = btn.closest('.song-item');
+        const current = item.dataset.songId === state.currentSong?.id;
+        const playing = current && state.isPlaying;
+        item.classList.toggle('playing-now', current);
+        btn.classList.toggle('playing', current);
+        btn.querySelector('use')?.setAttribute('href', `${ICON_SPRITE}#${playing ? 'pause' : 'play'}`);
+        btn.title = playing ? '暂停' : '播放';
+        const title = item.querySelector('.song-title')?.textContent || '歌曲';
+        const label = `${btn.title} ${title}`;
+        btn.setAttribute('aria-label', label);
+        if (!state.isBatchMode || !item.querySelector('.song-select-btn')) {
+            item.querySelector('.song-info').setAttribute('aria-label', label);
+        }
     });
-    document.querySelectorAll('.song-item').forEach(item => {
-        item.classList.remove('playing-now');
-    });
-    if (state.currentSong) {
-        document.querySelectorAll(`.song-item[data-song-id="${state.currentSong.id}"]`).forEach(songItem => {
-            songItem.classList.add('playing-now');
-            const target = songItem.querySelector('.play-btn-item');
-            if (target) {
-                target.classList.add('playing');
-                setIcon(target, state.isPlaying ? ICON.pause : ICON.play);
-                target.title = state.isPlaying ? '暂停' : '播放';
-                target.setAttribute('aria-label', target.title + ' ' + (state.currentSong.title || '歌曲'));
-            }
-        });
-    }
 }
 
 // ─── 下载 ───────────────────────────────────────────────
+
+function canDownloadSong(song) {
+    return song && !song.downloaded && song.download_allowed !== false && Boolean(song.mp3_url || song.url);
+}
 
 async function downloadSong(songId, options = {}) {
     const quiet = options.quiet === true;
@@ -2410,6 +2553,9 @@ async function downloadSong(songId, options = {}) {
         if (!quiet) toast('没有下载链接', true);
         return 'failed';
     }
+    if (downloadsInProgress.has(songId)) return 'skipped';
+    downloadsInProgress.add(songId);
+    syncDownloadCurrentButton();
 
     if (!quiet) toast('开始下载...');
     try {
@@ -2444,123 +2590,113 @@ async function downloadSong(songId, options = {}) {
     } catch {
         if (!quiet) toast('下载请求失败', true);
         return 'failed';
+    } finally {
+        downloadsInProgress.delete(songId);
+        syncDownloadCurrentButton();
     }
 }
+const favoriteWrites = new Set();
+
 async function toggleFavorite(songId) {
-    const song = findSongInState(songId);
+    const song = findSongInState(songId) || (state.currentSong?.id === songId ? state.currentSong : null);
     if (!song) return toast('找不到歌曲', true);
-
     const favorite = findFavoriteForSong(song);
-    const favorited = Boolean(favorite);
-
-    if (favorited) {
-        try {
-            const resp = await fetch('/api/favorites', {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
+    const key = getSongIdentityKey(song) || song.id;
+    if (favoriteWrites.has(key)) return;
+    favoriteWrites.add(key);
+    try {
+        if (favorite) {
+            const removed = await fetchJSON('/api/favorites', {
+                method: 'DELETE', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: favorite.id }),
             });
-            const data = await resp.json();
-            if (!data.success) {
-                toast(data.error || '操作失败', true);
-                return;
-            }
-            state.favorites = state.favorites.filter(f => f.id !== favorite.id);
-            song.favorited = false;
-            toast('已取消收藏');
-        } catch {
-            toast('操作失败', true);
-        }
-    } else {
-        try {
-            const resp = await fetch('/api/favorites', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    id: songId,
-                    title: song.title,
-                    artist: song.artist,
-                    album: song.album || '',
-                    version: song.version || '',
-                    url: song.url,
-                    source_url: song.source_url || song.url || '',
-                    mp3_url: song.mp3_url || '',
-                    song_ref: getSongInfoReference(song),
-                    source: song.source || '',
-                    cover_url: song.cover_url || '',
-                    pic_id: song.pic_id || '',
-                    type: song.type || '',
-                    songid: song.songid || '',
-                    lyric_id: song.lyric_id || '',
-                    lyrics: Array.isArray(song.lyrics) ? song.lyrics : [],
-                    lyrics_status: song.lyrics_status || '',
-                    lyrics_source: song.lyrics_source || '',
-                    expected_duration: song.expected_duration ?? null,
-                    actual_duration: state.currentSong?.id === song.id ? state.currentSong.actual_duration ?? null : song.actual_duration ?? null,
-                    is_preview: Boolean(song.is_preview),
-                    filename: song.filename || '',
-                    downloaded: song.downloaded || false,
-                }),
-            });
-            const data = await resp.json();
-            if (!data.success) {
-                toast(data.error || '操作失败', true);
-                return;
-            }
-            if (!state.favorites.some(f => f.id === songId)) {
-                state.favorites = state.favorites.concat(data.favorite || {
-                    id: song.id,
-                    title: song.title,
-                    artist: song.artist,
-                    album: song.album || '',
-                    version: song.version || '',
-                    url: song.url || '',
-                    source_url: song.source_url || song.url || '',
-                    mp3_url: song.mp3_url || '',
-                    song_ref: getSongInfoReference(song),
-                    source: song.source || '',
-                    type: song.type || '',
-                    songid: song.songid || '',
-                    lyric_id: song.lyric_id || '',
-                    lyrics: Array.isArray(song.lyrics) ? song.lyrics : [],
-                    lyrics_status: song.lyrics_status || '',
-                    lyrics_source: song.lyrics_source || '',
-                    filename: song.filename || '',
-                    downloaded: song.downloaded || false,
+            state.favoritesRevision++;
+            state.favorites = state.favorites.filter(item => item.id !== favorite.id);
+            refreshFavoriteViews();
+            if (removed.favorite) {
+                offerUndo('已取消收藏', async () => {
+                    if (favoriteWrites.has(key)) throw new Error('收藏正在更新，请稍后重试');
+                    favoriteWrites.add(key);
+                    try {
+                        await saveFavorite({ ...removed.favorite, restore_position: removed.position });
+                        refreshFavoriteViews();
+                    } finally {
+                        favoriteWrites.delete(key);
+                    }
                 });
             }
-            song.favorited = true;
+        } else {
+            const actualDuration = state.currentSong?.id === songId ? state.currentSong.actual_duration ?? song.actual_duration : song.actual_duration;
+            await saveFavorite({ ...song, actual_duration: actualDuration, song_ref: getSongInfoReference(song), source_url: song.source_url || song.url || '' });
+            refreshFavoriteViews();
             toast('已收藏', false, 'check');
-        } catch {
-            toast('操作失败', true);
         }
+    } catch (error) {
+        toast(error.message || '收藏操作失败，请重试', true);
+    } finally {
+        favoriteWrites.delete(key);
     }
+}
+
+async function saveFavorite(song) {
+    const data = await fetchJSON('/api/favorites', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(song),
+    });
+    state.favoritesRevision++;
+    if (!state.favorites.some(item => item.id === data.favorite.id)) {
+        state.favorites.splice(data.position ?? state.favorites.length, 0, data.favorite);
+    }
+}
+
+function refreshFavoriteViews() {
     syncCachedSongFlags();
-    refreshCurrentTab();
+    if (state.currentTab === 'favorites') renderFavorites();
+    else if (state.currentTab === 'downloads') renderDownloads();
+    else if (state.currentTab === 'playlist-detail') renderPlaylistSongs(state.playlists.find(pl => pl.id === state.currentPlaylistDetailId));
+    else if (state.currentTab === 'queue') renderQueue();
+    renderSearchResults();
 }
 
 // ─── 歌单管理 ───────────────────────────────────────────
 
 async function loadPlaylists() {
+    const revision = state.playlistsRevision;
     try {
         const data = await fetchJSON('/api/playlists');
+        if (revision !== state.playlistsRevision) return;
         if (!Array.isArray(data.playlists)) throw new Error('歌单数据暂时不可用');
         state.playlists = data.playlists || [];
         state.playlistsError = '';
-        if (state.currentTab === 'playlists' || state.currentTab === 'playlist-detail') {
-            renderPlaylistsTab();
-        }
+        if (state.currentTab === 'playlists') renderPlaylistsTab();
+        else if (state.currentTab === 'playlist-detail') renderPlaylistSongs(state.playlists.find(pl => pl.id === state.currentPlaylistDetailId));
     } catch {
+        if (revision !== state.playlistsRevision) return;
         state.playlistsError = '歌单加载失败，已有歌单不会丢失';
         if (state.currentTab === 'playlists') renderPlaylistsTab();
     }
 }
 
-$('addPlaylistBtn').addEventListener('click', () => {
-    $('playlistModal').style.display = 'flex';
-    focusDialog($('playlistModal'));
+let newPlaylistSongs = [];
+
+function showPlaylistForm(songs = []) {
+    newPlaylistSongs = songs;
+    const overlay = $('playlistModal');
+    overlay.style.display = 'flex';
+    $('playlistModalTitle').textContent = songs.length ? '新建歌单并添加歌曲' : '新建歌单';
+    $('confirmPlaylistBtn').textContent = songs.length ? '创建并添加' : '创建';
     $('playlistNameInput').value = '';
-    $('playlistNameInput').focus();
+    $('playlistNameInput').removeAttribute('aria-invalid');
+    $('playlistFormError').hidden = true;
+    focusDialog(overlay);
+}
+
+$('addPlaylistBtn').addEventListener('click', () => showPlaylistForm());
+
+$('playlistNameInput').addEventListener('input', event => {
+    if (!event.target.value.trim()) return;
+    event.target.removeAttribute('aria-invalid');
+    $('playlistFormError').hidden = true;
 });
 
 $('cancelPlaylistBtn').addEventListener('click', () => {
@@ -2588,25 +2724,46 @@ document.addEventListener('keydown', e => {
     }
 });
 
-$('confirmPlaylistBtn').addEventListener('click', async () => {
-    const name = $('playlistNameInput').value.trim();
-    if (!name) return toast('请输入歌单名称', true);
+$('playlistForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const overlay = $('playlistModal');
+    if (overlay.dataset.submitting === 'true') return;
+    const input = $('playlistNameInput');
+    const errorMessage = $('playlistFormError');
+    const name = input.value.trim();
+    if (!name) {
+        input.setAttribute('aria-invalid', 'true');
+        errorMessage.textContent = '请输入歌单名称';
+        errorMessage.hidden = false;
+        input.focus();
+        return;
+    }
 
-    $('confirmPlaylistBtn').disabled = true;
+    const songs = newPlaylistSongs;
+    overlay.dataset.submitting = 'true';
+    $('confirmPlaylistBtn').disabled = $('cancelPlaylistBtn').disabled = true;
+    $('confirmPlaylistBtn').textContent = '创建中…';
+    input.removeAttribute('aria-invalid');
+    errorMessage.hidden = true;
     try {
         const data = await fetchJSON('/api/playlists', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name }),
+            body: JSON.stringify({ name, songs }),
         });
-        if (data.success) {
-            toast('歌单已创建', false, 'check');
-            dismissDialog($('playlistModal'));
-            await loadPlaylists();
-        }
+        updatePlaylistFromResponse(data.playlist);
+        newPlaylistSongs = [];
+        delete overlay.dataset.submitting;
+        dismissDialog(overlay);
+        toast(songs.length ? `已创建歌单并添加 ${songs.length} 首歌曲` : '歌单已创建', false, 'check');
     } catch (error) {
-        toast(error.message || '创建失败，请重试', true);
-    } finally { $('confirmPlaylistBtn').disabled = false; }
+        errorMessage.textContent = error.message || '创建失败，请重试';
+        errorMessage.hidden = false;
+    } finally {
+        delete overlay.dataset.submitting;
+        $('confirmPlaylistBtn').disabled = $('cancelPlaylistBtn').disabled = false;
+        $('confirmPlaylistBtn').textContent = songs.length ? '创建并添加' : '创建';
+    }
 });
 
 async function deletePlaylist(plId) {
@@ -2621,71 +2778,99 @@ async function deletePlaylist(plId) {
         const data = await fetchJSON(`/api/playlists/${plId}`, { method: 'DELETE' });
         if (!data.success) throw new Error('歌单未删除，请重试');
         toast('歌单已删除');
-        await loadPlaylists();
-        // 如果当前在歌单详情页，切回我的歌单
-        if (state.currentTab === 'playlist-detail') {
+        state.playlistsRevision++;
+        state.playlists = state.playlists.filter(item => item.id !== plId);
+        if (state.currentTab === 'playlist-detail' && state.currentPlaylistDetailId === plId) {
             document.querySelector('.tab[data-tab="playlists"]').click();
+            $('addPlaylistBtn').focus({ preventScroll: true });
+        } else if (state.currentTab === 'playlists') {
+            renderPlaylistsTab();
         }
     } catch (error) {
         toast(error.message || '删除失败，请重试', true);
     }
 }
 
-async function removeSongFromPlaylist(plId, songId) {
-    const pl = state.playlists.find(p => p.id === plId);
-    if (!pl) return toast('歌单不存在', true);
-
+async function removeSongFromPlaylist(plId, songId, trigger) {
+    if (trigger.getAttribute('aria-busy') === 'true') return;
+    trigger.setAttribute('aria-busy', 'true');
     try {
-        const data = await fetchJSON(`/api/playlists/${plId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ remove_song: songId }),
-        });
-        if (data.success) {
-            toast('已从歌单移除', false, 'check');
-            await loadPlaylists();
-            showPlaylistDetail(plId);
-        } else {
-            toast(data.error || '移除失败', true);
+        const data = await changePlaylistSongs(plId, { remove_song: songId });
+        updatePlaylistFromResponse(data.playlist);
+        if (data.removed) {
+            offerUndo('已从歌单移除', async () => {
+                const restored = await changePlaylistSongs(plId, { add_song: data.removed.song, song_position: data.removed.position });
+                updatePlaylistFromResponse(restored.playlist);
+            });
         }
-    } catch {
-        toast('移除失败', true);
+    } catch (error) {
+        toast(error.message || '移除失败，请重试', true);
+    } finally {
+        trigger.removeAttribute('aria-busy');
     }
 }
 
 // ─── 添加到歌单浮层 ─────────────────────────────────────
 
-let addToPlSongIds = [];
-
 function showAddToPlaylist(songIdOrIds) {
-    addToPlSongIds = Array.isArray(songIdOrIds) ? songIdOrIds.slice() : [songIdOrIds];
+    const ids = Array.isArray(songIdOrIds) ? songIdOrIds : [songIdOrIds];
+    const songs = [...new Set(ids)].map(findSongInState).filter(Boolean);
+    if (!songs.length) return;
+    if (!state.playlists.length && !state.playlistsError) {
+        showPlaylistForm(songs);
+        return;
+    }
 
     const overlay = document.createElement('div');
     overlay.className = 'add-to-pl-overlay';
     overlay.id = 'addToPlOverlay';
 
-    let optionsHtml = state.playlists.map(pl => `
-        <button type="button" class="pl-option" onclick="addSongToPlaylist('${pl.id}')">
+    const optionsHtml = state.playlists.map(pl => {
+        const existing = new Set(pl.songs.map(song => typeof song === 'string' ? song : song.id));
+        const missing = songs.filter(song => !existing.has(song.id)).length;
+        return `
+        <button type="button" class="pl-option" data-playlist-id="${escapeHtml(pl.id)}" ${missing ? '' : 'disabled'}>
             <span class="pl-option-name">${escapeHtml(pl.name)}</span>
-            <span class="pl-option-count">(${pl.songs.length})</span>
+            <span class="pl-option-count">${missing ? `${pl.songs.length} 首` : '已添加'}</span>
         </button>
-    `).join('');
-
-    if (!state.playlists.length) {
-        optionsHtml = `<div class="notice-with-icon playlist-picker-empty">${ICON.info}还没有歌单，先去创建</div>`;
-    }
+    `;
+    }).join('');
 
     overlay.innerHTML = `
         <div class="add-to-pl-panel" role="dialog" aria-modal="true" aria-label="添加歌曲到歌单">
             <h3 class="notice-with-icon">${ICON.plus}添加到歌单</h3>
-            ${optionsHtml}
-            <button class="btn-secondary" onclick="dismissDialog(this.closest('.add-to-pl-overlay'))">取消</button>
+            <div class="song-select-list">${optionsHtml}</div>
+            <p class="form-error" role="alert" ${state.playlistsError ? '' : 'hidden'}>${escapeHtml(state.playlistsError)}</p>
+            ${state.playlistsError ? '<button class="text-btn picker-retry" type="button">重新加载歌单</button>' : ''}
+            <div class="modal-actions">
+                <button class="btn-secondary" onclick="dismissDialog(this.closest('.add-to-pl-overlay'))">取消</button>
+                <button class="btn-primary picker-create" type="button">${ICON.plus} 新建歌单</button>
+            </div>
         </div>
     `;
     document.body.appendChild(overlay);
     focusDialog(overlay);
-    overlay.addEventListener('click', e => {
+    overlay.addEventListener('click', async e => {
         if (e.target === overlay) dismissDialog(overlay);
+        const button = e.target.closest('button');
+        if (!button || overlay.dataset.submitting === 'true') return;
+        if (button.dataset.playlistId) addSongsToPlaylist(button.dataset.playlistId, songs, overlay, button);
+        else if (button.classList.contains('picker-create')) {
+            dismissDialog(overlay);
+            showPlaylistForm(songs);
+        } else if (button.classList.contains('picker-retry')) {
+            button.disabled = true;
+            await loadPlaylists();
+            if (!overlay.isConnected || overlay.inert) return;
+            if (state.playlistsError) {
+                button.disabled = false;
+                toast('歌单加载失败，请重试', true);
+                button.focus({ preventScroll: true });
+            } else {
+                dismissDialog(overlay);
+                showAddToPlaylist(ids);
+            }
+        }
     });
 }
 
@@ -2753,12 +2938,12 @@ async function batchDownloadLocalSongs() {
     const songs = Array.from(state.selectedSongIds)
         .map(id => findSongInState(id))
         .filter(song => {
-            if (!song || song.downloaded || seen.has(song.id)) return false;
+            if (!canDownloadSong(song) || seen.has(song.id)) return false;
             seen.add(song.id);
             return true;
         });
 
-    if (!songs.length) return toast('选中的歌曲都已在本地', true);
+    if (!songs.length) return;
 
     let downloaded = 0;
     let failed = 0;
@@ -2800,7 +2985,6 @@ async function batchDeleteLocalSongs() {
 
     if (!songs.length) return toast('选中的歌曲都不在本地', true);
     state.isDeletingDownloads = true;
-    syncBatchToolbar();
     let deleted = 0;
     const failures = [];
     let confirmed = false;
@@ -2811,6 +2995,7 @@ async function batchDeleteLocalSongs() {
             confirmText: `删除 ${songs.length} 首`,
         });
         if (!confirmed) return;
+        syncBatchToolbar();
         $('downloadDeleteResult').hidden = true;
 
         for (const song of songs) {
@@ -2831,8 +3016,8 @@ async function batchDeleteLocalSongs() {
         result.textContent = [message, ...failures.map(item => `${item.title}：${item.reason}`),
             ...(downloadsRefreshed === false ? ['列表刷新失败，请切换回下载页重新加载；已成功删除的文件不会再次删除。'] : [])].join('\n');
         result.hidden = false;
-        toast(message, failures.length > 0);
         if (state.currentTab !== 'downloads') {
+            toast(message, failures.length > 0);
             await refreshCurrentTab();
         }
     } catch (err) {
@@ -2866,7 +3051,7 @@ function renderPlaylistsTab() {
         const count = pl.songs.length;
         return `
             <div class="playlist-card">
-                <button type="button" class="pl-card-top" onclick="showPlaylistDetail('${pl.id}')">
+                <button type="button" class="pl-card-top" data-playlist-id="${escapeHtml(pl.id)}" onclick="showPlaylistDetail(this.dataset.playlistId)">
                     <div class="pl-card-icon">${ICON.record}</div>
                     <div class="pl-card-name" title="${escapeHtml(pl.name)}">${escapeHtml(pl.name)}</div>
                     <div class="pl-card-count">${count} 首</div>
@@ -2880,16 +3065,17 @@ function renderPlaylistsTab() {
 // ─── 从收藏添加歌曲到歌单 ───────────────────────────────
 
 async function showAddSongToPlaylist(plId) {
+    const trigger = document.activeElement;
     // 确保收藏数据已加载
     if (!state.favorites.length) {
         try {
-            const resp = await fetch('/api/favorites');
-            const data = await resp.json();
+            const data = await fetchJSON('/api/favorites');
             state.favorites = data.favorites || [];
         } catch {
             return toast('获取收藏列表失败', true);
         }
     }
+    if (!isCurrentPlaylist(plId) || !trigger.isConnected) return;
 
     if (!state.favorites.length) {
         return toast('还没有收藏的歌曲，先去收藏一些吧', true);
@@ -2899,8 +3085,7 @@ async function showAddSongToPlaylist(plId) {
     if (!pl) return;
 
     // 过滤掉已在歌单中的歌曲
-    const existingIds = new Set(pl.songs.map(song => normalizePlaylistSong(song)?.id));
-    const available = state.favorites.filter(f => !existingIds.has(f.id));
+    const available = getAvailableFavorites(pl);
     if (!available.length) {
         return toast('收藏的歌曲都已在该歌单中了');
     }
@@ -2912,7 +3097,7 @@ async function showAddSongToPlaylist(plId) {
 
     let itemsHtml = available.map(f => `
         <label class="song-select-item">
-            <input type="checkbox" value="${f.id}" data-title="${escapeHtml(f.title)}">
+            <input type="checkbox" value="${escapeHtml(f.id)}">
             <span>${escapeHtml(f.title)} - ${escapeHtml(f.artist)}</span>
         </label>
     `).join('');
@@ -2921,15 +3106,22 @@ async function showAddSongToPlaylist(plId) {
         <div class="add-to-pl-panel" role="dialog" aria-modal="true" aria-label="添加歌曲到歌单" style="max-height:80vh;overflow-y:auto;">
             <h3>从收藏添加歌曲到「${escapeHtml(pl.name)}」</h3>
             <div class="song-select-list">${itemsHtml}</div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-                <button class="btn-primary" onclick="confirmAddSongsToPlaylist('${plId}')">添加选中</button>
+            <p class="form-error" role="alert" hidden></p>
+            <div class="modal-actions">
                 <button class="btn-secondary" onclick="dismissDialog(this.closest('.add-to-pl-overlay'))">取消</button>
+                <button class="btn-primary confirm-add-songs" type="button" disabled>添加选中</button>
             </div>
         </div>
     `;
 
     document.body.appendChild(overlay);
     focusDialog(overlay);
+    const confirm = overlay.querySelector('.confirm-add-songs');
+    overlay.addEventListener('change', () => { confirm.disabled = !overlay.querySelector('input:checked'); });
+    confirm.addEventListener('click', () => {
+        const chosen = new Set([...overlay.querySelectorAll('input:checked')].map(input => input.value));
+        addSongsToPlaylist(plId, available.filter(song => chosen.has(song.id)), overlay, confirm);
+    });
     overlay.addEventListener('click', e => {
         if (e.target === overlay) dismissDialog(overlay);
     });
@@ -2991,11 +3183,9 @@ setInterval(() => {
 }, 30000);
 
 async function restorePlaybackState() {
-    const saved = localStorage.getItem('music_playback');
-    if (!saved) return;
     let data;
-    try { data = JSON.parse(saved); } catch { return; }
-    if (!data.currentSong) return;
+    try { data = JSON.parse(localStorage.getItem('music_playback')); } catch { return; }
+    if (!data?.currentSong || state.currentSong) return;
 
     // 恢复播放模式
     if (data.playMode && data.playMode !== state.playMode) {
@@ -3065,7 +3255,12 @@ async function restorePlaybackState() {
 async function showPlaylistDetail(plId) {
     const pl = state.playlists.find(p => p.id === plId);
     if (!pl) return;
+    if (isCurrentPlaylist(plId)) {
+        renderPlaylistSongs(pl);
+        return;
+    }
 
+    if (state.currentTab === 'playlists') state.libraryScroll.playlists = libraryPanel.querySelector('.main-layout').scrollTop;
     document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
     $('tab-playlist-detail').classList.add('active');
     state.currentTab = 'playlist-detail';
@@ -3075,93 +3270,109 @@ async function showPlaylistDetail(plId) {
     const header = document.querySelector('.playlist-detail-header');
     header.innerHTML = `
         <div class="playlist-detail-main">
-            <button class="back-btn" onclick="document.querySelector('.tab[data-tab=\\'playlists\\']').click()">${ICON.back}返回</button>
+            <button class="back-btn" type="button">${ICON.back}返回</button>
             <div class="playlist-detail-info">
                 <h2 title="${escapeHtml(pl.name)}">${escapeHtml(pl.name)}</h2>
-                <span class="song-count">${pl.songs.length} 首</span>
+                <span id="playlistDetailCount" class="song-count"></span>
             </div>
         </div>
         <div class="playlist-detail-actions">
-            <button class="play-all-btn" onclick="playPlaylist('${pl.id}')">${ICON.play} 播放全部</button>
-            <button class="add-song-btn" onclick="showAddSongToPlaylist('${pl.id}')">${ICON.plus} 添加歌曲</button>
-            <button class="del-pl-btn" onclick="deletePlaylist('${pl.id}')">${ICON.trash} 删除</button>
+            <button class="play-all-btn" type="button">${ICON.play} 播放全部</button>
+            <button class="add-song-btn" type="button">${ICON.plus} 从收藏添加</button>
+            <button class="del-pl-btn" type="button">${ICON.trash} 删除歌单</button>
         </div>
     `;
+    const backButton = header.querySelector('.back-btn');
+    backButton.addEventListener('click', () => {
+        document.querySelector('.tab[data-tab="playlists"]').click();
+        $('playlistsGrid').querySelector(`[data-playlist-id="${CSS.escape(plId)}"]`)?.focus({ preventScroll: true });
+    });
+    header.querySelector('.play-all-btn').addEventListener('click', () => playPlaylist(plId));
+    header.querySelector('.add-song-btn').addEventListener('click', () => showAddSongToPlaylist(plId));
+    header.querySelector('.del-pl-btn').addEventListener('click', () => deletePlaylist(plId));
 
     renderPlaylistSongs(pl);
+    backButton.focus({ preventScroll: true });
 }
 
 function renderPlaylistSongs(pl) {
     if (!pl) return;
     const container = $('playlistDetailSongs');
+    const header = document.querySelector('.playlist-detail-header');
+    const addButton = header.querySelector('.add-song-btn');
+    const hasCandidates = getAvailableFavorites(pl).length > 0;
+    const focused = document.activeElement;
+    addButton.hidden = !hasCandidates;
+    header.querySelector('.play-all-btn').hidden = !pl.songs.length;
+    const total = pl.songs.length;
+    const detailSongs = filterSongs(pl.songs.map(normalizePlaylistSong).filter(song => song && song.id), `playlist:${pl.id}`);
+    syncListFilterCount('playlist-detail', total, detailSongs.length);
+    $('playlistDetailCount').textContent = `${total} 首`;
+    if (focused === addButton && !hasCandidates) header.querySelector('.back-btn').focus({ preventScroll: true });
     if (!pl.songs.length) {
-        container.innerHTML = `<div class="empty-state">${ICON.musicNote}<p>歌单还没有歌曲</p><p class="hint">点击「添加歌曲」，从收藏中挑选</p></div>`;
+        replaceSongRows(container, `<div class="empty-state">${ICON.musicNote}<p>歌单还没有歌曲</p>${hasCandidates ? '' : '<p class="hint">搜索歌曲后，可以从更多操作加入歌单</p><button class="btn-secondary" onclick="focusMusicSearch()">找首歌</button>'}</div>`);
         return;
     }
 
-    const detailSongs = filterSongs(pl.songs.map(normalizePlaylistSong).filter(song => song && song.id));
-    container.innerHTML = detailSongs.length ? detailSongs.map(song => buildSongItem(song, { playlistId: pl.id, hideSelectBtn: true })).join('')
-        : `<div class="empty-state">${ICON.musicNote}<p>没有匹配的歌单歌曲</p></div>`;
+    replaceSongRows(container, detailSongs.length ? detailSongs.map(song => buildSongItem(song, { playlistId: pl.id, hideSelectBtn: true })).join('')
+        : `<div class="empty-state">${ICON.musicNote}<p>没有匹配的歌单歌曲</p></div>`);
 }
 
-async function addSongToPlaylist(plId) {
-    if (!addToPlSongIds.length) return;
-
-    try {
-        const pl = state.playlists.find(p => p.id === plId);
-        if (!pl) return;
-        const nextSongs = (pl.songs || []).map(normalizePlaylistSong).filter(song => song && song.id);
-        for (const songId of addToPlSongIds) {
-            const song = findSongInState(songId);
-            if (!song || nextSongs.some(existing => existing.id === song.id)) continue;
-            nextSongs.push({ ...song });
-        }
-        const data = await fetchJSON(`/api/playlists/${plId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ songs: nextSongs }),
-        });
-        if (data.success) {
-            toast('已添加到歌单', false, 'check');
-            if ($('addToPlOverlay')) dismissDialog($('addToPlOverlay'));
-            await loadPlaylists();
-        }
-    } catch {
-        toast('添加失败', true);
-    }
+function getAvailableFavorites(playlist) {
+    const ids = new Set(playlist.songs.map(song => typeof song === 'string' ? song : song.id));
+    return state.favorites.filter(song => !ids.has(song.id));
 }
 
-async function confirmAddSongsToPlaylist(plId) {
-    const checked = document.querySelectorAll('#addSongsOverlay input[type="checkbox"]:checked');
-    if (!checked.length) return toast('请选择要添加的歌曲');
+function isCurrentPlaylist(plId) {
+    return state.currentTab === 'playlist-detail' && state.currentPlaylistDetailId === plId;
+}
 
-    const songIds = Array.from(checked).map(cb => cb.value);
-    const pl = state.playlists.find(p => p.id === plId);
-    if (!pl) return;
+function updatePlaylistFromResponse(playlist) {
+    state.playlistsRevision++;
+    const index = state.playlists.findIndex(item => item.id === playlist.id);
+    if (index >= 0) state.playlists[index] = playlist;
+    else state.playlists.push(playlist);
+    if (state.currentTab === 'playlists') renderPlaylistsTab();
+    else if (isCurrentPlaylist(playlist.id)) renderPlaylistSongs(playlist);
+    if (state.playlistsError) void loadPlaylists();
+}
 
-    const nextSongs = (pl.songs || []).map(normalizePlaylistSong).filter(song => song && song.id);
-    let added = 0;
-    for (const songId of songIds) {
-        const song = findSongInState(songId);
-        if (!song || nextSongs.some(existing => existing.id === song.id)) continue;
-        nextSongs.push({ ...song });
-        added++;
-    }
+const playlistWrites = new Map();
 
+function changePlaylistSongs(plId, change) {
+    const previous = playlistWrites.get(plId) || Promise.resolve();
+    const request = previous.catch(() => {}).then(() => fetchJSON(`/api/playlists/${encodeURIComponent(plId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(change),
+    }));
+    playlistWrites.set(plId, request);
+    return request.finally(() => {
+        if (playlistWrites.get(plId) === request) playlistWrites.delete(plId);
+    });
+}
+
+async function addSongsToPlaylist(plId, songs, overlay, button) {
+    if (!songs.length || overlay.dataset.submitting === 'true') return;
+    const errorMessage = overlay.querySelector('.form-error');
+    const label = button.innerHTML;
+    errorMessage.hidden = true;
+    overlay.dataset.submitting = 'true';
+    button.textContent = '添加中…';
+    button.setAttribute('aria-busy', 'true');
     try {
-        const data = await fetchJSON(`/api/playlists/${plId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ songs: nextSongs }),
-        });
-        if (data.success) {
-            toast(`已添加 ${added} 首歌曲到歌单`);
-            if ($('addSongsOverlay')) dismissDialog($('addSongsOverlay'));
-            await loadPlaylists();
-            showPlaylistDetail(plId);
-        }
-    } catch {
-        toast('添加失败', true);
+        const data = await changePlaylistSongs(plId, { add_songs: songs });
+        delete overlay.dataset.submitting;
+        dismissDialog(overlay);
+        updatePlaylistFromResponse(data.playlist);
+        toast(data.added_count ? `已添加 ${data.added_count} 首歌曲到歌单` : '所选歌曲已在歌单中', false, 'check');
+    } catch (error) {
+        errorMessage.textContent = error.message || '添加失败，请重试';
+        errorMessage.hidden = false;
+    } finally {
+        delete overlay.dataset.submitting;
+        button.innerHTML = label;
+        button.removeAttribute('aria-busy');
     }
 }
 
@@ -3178,13 +3389,15 @@ function playPlaylist(plId) {
     state.queue = playlistSongs;
     state.playHistory = [];
     state.queueIndex = 0;
-    state.currentSong = null;
-    playSong(playlistSongs[0].id, { keepQueue: true });
-    toast(`正在播放歌单《${pl.name}》`);
+    const firstSong = playlistSongs[0];
+    if (state.currentSong?.id === firstSong.id && (state.isPlaying || state.isLoading)) {
+        savePlaybackState();
+        return;
+    }
+    playSong(firstSong.id, { keepQueue: true, rememberHistory: false });
 }
 
 async function init() {
-    updateGDServerStatus();
     setInterval(updateGDServerStatus, 20000);
     try { state.lyricsEffect = localStorage.getItem('shine_lyrics_effect') === 'clear' ? 'clear' : 'neon'; } catch { /* default neon */ }
     syncLyricsEffect();
@@ -3196,10 +3409,10 @@ async function init() {
     equalizer.classList.add('paused');
 
     // 恢复音量和播放状态
-    const savedVol = localStorage.getItem('music_volume');
-    if (savedVol !== null) {
-        volumeBar.value = savedVol;
-    }
+    try {
+        const savedVol = localStorage.getItem('music_volume');
+        if (savedVol !== null && savedVol.trim() && Number.isFinite(Number(savedVol))) volumeBar.value = savedVol;
+    } catch { /* Use default volume when storage is unavailable. */ }
     playbackState.baseVolume = Number(volumeBar.value || 0) / 100;
     setVolume(Number(volumeBar.value));
     syncImmersivePlayerUI();

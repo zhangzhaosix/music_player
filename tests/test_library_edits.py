@@ -1,0 +1,62 @@
+import sys
+import tempfile
+import unittest
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'code' / 'backend'))
+import app as music
+
+
+class LibraryEditTests(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        folder = directory.name
+        paths = patch.multiple(
+            music, MUSIC_DIR=folder,
+            FAVORITES_FILE=str(Path(folder) / 'favorites.json'),
+            PLAYLISTS_FILE=str(Path(folder) / 'playlists.json'),
+            DOWNLOAD_INDEX_FILE=str(Path(folder) / 'downloads.json'),
+        )
+        paths.start()
+        self.addCleanup(paths.stop)
+        self.client = music.app.test_client()
+
+    def test_restore_favorite_preserves_position_and_added_at(self):
+        first, second = {'id': 'one', 'title': 'First'}, {'id': 'two', 'title': 'Second'}
+        self.client.post('/api/favorites', json=first)
+        self.client.post('/api/favorites', json=second)
+        removed = self.client.delete('/api/favorites', json={'id': first['id']}).get_json()
+        original = removed['favorite']
+        for _ in range(2):
+            restored = self.client.post('/api/favorites', json={**original, 'restore_position': removed['position']})
+            self.assertEqual(restored.status_code, 200)
+        favorites = self.client.get('/api/favorites').get_json()['favorites']
+        self.assertEqual([song['id'] for song in favorites], ['one', 'two'])
+        self.assertEqual(favorites[0]['added_at'], original['added_at'])
+
+    def test_playlist_create_and_merge_concurrent_edits_without_overwriting(self):
+        response = self.client.post('/api/playlists', json={'name': 'Night', 'songs': [{'id': 'first'}, {'id': 'second'}]})
+        self.assertEqual(response.status_code, 201)
+        playlist = response.get_json()['playlist']
+        endpoint = f"/api/playlists/{playlist['id']}"
+
+        def append(song_id):
+            with music.app.test_client() as client:
+                return client.put(endpoint, json={'add_songs': [{'id': 'second'}, {'id': song_id}]}).get_json()
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            for result in pool.map(append, ['third', 'fourth']):
+                self.assertEqual(result['added_count'], 1)
+
+        removal = self.client.put(endpoint, json={'remove_song': 'first'}).get_json()['removed']
+        restored = self.client.put(endpoint, json={'add_song': removal['song'], 'song_position': removal['position']}).get_json()
+        ids = [song['id'] for song in restored['playlist']['songs']]
+        self.assertEqual(ids[:2], ['first', 'second'])
+        self.assertCountEqual(ids[2:], ['third', 'fourth'])
+
+
+if __name__ == '__main__':
+    unittest.main()

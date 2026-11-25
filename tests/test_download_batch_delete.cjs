@@ -17,6 +17,7 @@ function element() {
         hidden: false, disabled: false, textContent: '', attributes: {},
         classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); }, contains: name => classes.has(name) },
         setAttribute(name, value) { this.attributes[name] = value; },
+        querySelector() { return null; },
         append(child) { child.parentElement = this; },
     };
 }
@@ -30,7 +31,8 @@ function fixture() {
         state: { currentTab: 'downloads', localMusic: ['a', 'b', 'c'].map(id => ({ id, filename: `${id}.mp3`, title: id })),
             favorites: [], listFilters: {}, selectedSongIds: new Set(['a', 'b']), isBatchMode: true, isDeletingDownloads: false },
         SONG_LIST_TABS: new Set(['downloads', 'favorites', 'search']),
-        getVisibleSongIds: () => ['a', 'b', 'c'], filterSongs: songs => songs,
+        getVisibleSongIds: () => ['a', 'b', 'c'], filterSongs: songs => songs, syncListFilterCount() {},
+        replaceSongRows(container, html) { container.innerHTML = html; },
         updateBatchSelectionUI() {}, syncBatchToolbar() {}, renderDownloads() {},
         showDeleteConfirm: async () => true,
         deleteLocalSongSilently: async (id, filename) => { requests.push(filename); return true; },

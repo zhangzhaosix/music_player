@@ -90,7 +90,7 @@ test('quick search reveals its field on mobile without jumping to the library or
             openLibrary() { throw new Error('search must not jump to the library'); },
             requestAnimationFrame(fn) { fn(); },
         });
-        vm.runInContext(source.slice(source.indexOf('function focusMusicSearch()'), source.indexOf('function renderQueue()')), c);
+        vm.runInContext(source.slice(source.indexOf('function focusMusicSearch()'), source.indexOf("document.querySelector('.mobile-navigation')")), c);
         c.focusMusicSearch();
         assert.deepEqual(actions, mobile
             ? [['reveal search', 'center'], ['focus', true], ['select']]
@@ -98,25 +98,32 @@ test('quick search reveals its field on mobile without jumping to the library or
     }
 });
 
-test('timed lyrics stay centered inside their positioned scroll container and respect manual follow', () => {
+test('lyric follow centers nearby lines smoothly and jumps directly for distant or reduced-motion changes', () => {
     const scrolls = [];
     const line = { offsetTop: 900, clientHeight: 30, classList: { add() {}, remove() {} } };
+    let reduced = false;
     const c = vm.createContext({
-        lyricsList: { offsetTop: 430, clientHeight: 210, scrollTo(options) { scrolls.push(options.top); } },
+        lyricsList: { offsetTop: 430, scrollTop: 0, clientHeight: 210, scrollTo(options) { scrolls.push(options); } },
         state: { lyricLines: [line], timedLyrics: [{ time: 10, index: 0 }], currentLyricIndex: -1, isPlaying: true, lyricsFollow: true },
-        audio: { currentTime: 15 }, matchMedia: () => ({ matches: true }),
+        audio: { currentTime: 15 }, matchMedia: () => ({ matches: reduced }),
     });
     vm.runInContext(source.slice(source.indexOf('function syncLyricHighlight('), source.indexOf('function syncImmersivePlayerUI()')), c);
     c.syncLyricHighlight();
     assert.equal(c.state.currentLyricIndex, 0);
-    assert.equal(scrolls[0], 810);
-    assert.equal(line.offsetTop - scrolls[0] + line.clientHeight / 2, c.lyricsList.clientHeight / 2);
+    assert.equal(scrolls[0].top, 810);
+    assert.equal(scrolls[0].behavior, 'instant');
+    assert.equal(line.offsetTop - scrolls[0].top + line.clientHeight / 2, c.lyricsList.clientHeight / 2);
     c.state.lyricsFollow = false;
     c.syncLyricHighlight(true);
     assert.equal(scrolls.length, 1);
     c.state.lyricsFollow = true;
     c.state.isPlaying = false;
+    c.lyricsList.scrollTop = 770;
     c.syncLyricHighlight(true);
     assert.equal(scrolls.length, 2);
-    assert.equal(scrolls[1], 810);
+    assert.equal(scrolls[1].top, 810);
+    assert.equal(scrolls[1].behavior, 'smooth');
+    reduced = true;
+    c.syncLyricHighlight(true);
+    assert.equal(scrolls[2].behavior, 'instant');
 });

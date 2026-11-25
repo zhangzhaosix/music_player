@@ -42,16 +42,22 @@ const flush = () => new Promise(setImmediate);
 test('the player download button reflects a file saved after the current track was loaded', () => {
     const song = { id: 'track', downloaded: false };
     const cachedSong = { ...song };
-    const button = {};
+    const button = { setAttribute(name, value) { this[name] = value; } };
     const c = vm.createContext({
         state: { currentSong: song },
         downloadCurrentBtn: button,
+        downloadsInProgress: new Set(),
         findSongInState: id => id === cachedSong.id ? cachedSong : null,
     });
     load(c, 'function syncDownloadCurrentButton(', 'function updateBatchSelectionUI(');
 
     c.syncDownloadCurrentButton();
     assert.equal(button.disabled, false);
+    c.downloadsInProgress.add(song.id);
+    c.syncDownloadCurrentButton();
+    assert.equal(button.disabled, true);
+    assert.equal(button['aria-label'], '正在下载');
+    c.downloadsInProgress.clear();
     cachedSong.downloaded = true;
     c.syncDownloadCurrentButton();
     assert.equal(button.disabled, true);
@@ -60,6 +66,7 @@ test('the player download button reflects a file saved after the current track w
     c.state.currentSong = { id: 'stream-only', download_allowed: false };
     c.syncDownloadCurrentButton();
     assert.equal(button.disabled, true);
+    assert.equal(button.hidden, true);
     assert.equal(button.title, '此来源仅供在线播放');
 
     c.state.currentSong = { id: 'another-track' };
@@ -348,6 +355,7 @@ test('retry clears both the original provider cache and the fallback provider ca
 test('restoring a previously playing tab keeps its progress but does not autoplay', async () => {
     const c = playerFixture();
     const saved = { currentSong: c.state.currentSong, currentTime: 28, wasPlaying: true, playMode: 'shuffle', queue: c.state.queue, queueIndex: 0 };
+    c.state.currentSong = null;
     c.localStorage = { getItem: () => JSON.stringify(saved) };
     c.playerTitle = {}; c.playerArtist = {}; c.isBlockedSongText = () => false;
     load(c, 'async function restorePlaybackState(', '// ─── 初始化');
@@ -358,7 +366,9 @@ test('restoring a previously playing tab keeps its progress but does not autopla
 
 test('a failed restore retains the saved song and progress for retry', async () => {
     const c = playerFixture();
-    c.localStorage = { getItem: () => JSON.stringify({ currentSong: c.state.currentSong, currentTime: 28 }) };
+    const saved = { currentSong: c.state.currentSong, currentTime: 28 };
+    c.state.currentSong = null;
+    c.localStorage = { getItem: () => JSON.stringify(saved) };
     c.playerTitle = {}; c.playerArtist = {}; c.isBlockedSongText = () => false;
     c.loadOnlineSongInfo = async () => null;
     load(c, 'async function restorePlaybackState(', '// ─── 初始化');
@@ -371,6 +381,16 @@ test('a failed restore retains the saved song and progress for retry', async () 
     load(c, 'function savePlaybackState(', '// 页面关闭/刷新前保存');
     c.savePlaybackState();
     assert.equal(c.savedAgain.currentTime, 28);
+});
+
+test('loading the library cannot restore an old song over a song already chosen', async () => {
+    const c = playerFixture();
+    c.localStorage = { getItem: () => JSON.stringify({ currentSong: c.state.queue[1], currentTime: 28 }) };
+    load(c, 'async function restorePlaybackState(', '// ─── 初始化');
+    await c.restorePlaybackState();
+    assert.equal(c.state.currentSong.id, 'a');
+    assert.equal(c.audio.currentTime, 37);
+    assert.equal(c.started, undefined);
 });
 
 test('a stalled initial audio play times out and pauses the pending media request', async () => {
@@ -454,18 +474,20 @@ test('local filtering matches combined title and artist without fetching online'
     const result = c.filterSongs([{ title: '小宇', artist: '张震岳' }, { title: '小宇', artist: '蓝心羽' }]);
     assert.equal(result.length, 1);
     assert.equal(result[0].artist, '张震岳');
+    c.syncListFilterCount('favorites', 2, result.length);
+    c.syncListFilterCount('downloads', 20, 10);
     assert.equal(nodes.listFilterCount.textContent, '1 / 2 首');
 });
 
 test('playlist picker excludes existing object-format songs', async () => {
     let overlay;
     const c = vm.createContext({
-        state: { favorites: [{ id: 'one', title: 'One' }, { id: 'two', title: 'Two' }], playlists: [{ id: 'pl', name: 'Playlist', songs: [{ id: 'one' }] }] },
-        normalizePlaylistSong: song => typeof song === 'object' ? song : { id: song },
-        document: { createElement: () => ({ addEventListener() {} }), body: { appendChild: node => { overlay = node; } } },
+        state: { currentTab: 'playlist-detail', currentPlaylistDetailId: 'pl', favorites: [{ id: 'one', title: 'One' }, { id: 'two', title: 'Two' }], playlists: [{ id: 'pl', name: 'Playlist', songs: [{ id: 'one' }] }] },
+        document: { activeElement: { isConnected: true }, createElement: () => ({ addEventListener() {}, querySelector: () => ({ addEventListener() {} }) }), body: { appendChild: node => { overlay = node; } } },
         escapeHtml: text => text || '', focusDialog() {}, toast() {},
     });
     load(c, 'async function showAddSongToPlaylist(', '// ─── 刷新当前标签页');
+    load(c, 'function getAvailableFavorites(', 'function updatePlaylistFromResponse(');
     await c.showAddSongToPlaylist('pl');
     assert.equal(overlay.innerHTML.includes('value="one"'), false);
     assert.equal(overlay.innerHTML.includes('value="two"'), true);

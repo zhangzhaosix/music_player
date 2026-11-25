@@ -5,24 +5,37 @@ const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../code/frontend/static/app.js'), 'utf8');
 
-test('server notice appears for confirmed outage and clears on recovery', async () => {
+test('only a failed search checks for recovery and clears its error', async () => {
     const from = source.indexOf('async function updateGDServerStatus(');
     const to = source.indexOf('function renderSearchResults(', from);
-    const notice = { hidden: true };
     let result = true;
-    const state = { searchError: '', searchSourceErrors: {} };
+    let requests = 0;
+    let renders = 0;
+    const state = {
+        searchError: '', searchSourceErrors: {}, searchResults: [], searchController: {},
+        lastSearchKeyword: 'Song',
+    };
     const c = vm.createContext({
-        fetch: async () => ({ ok: true, json: async () => ({ server_error: result }) }),
-        AbortSignal, state, $: () => notice, syncSearchPreview() {},
+        fetch: async () => {
+            requests++;
+            return { ok: true, json: async () => ({ server_error: result }) };
+        },
+        AbortSignal, state, syncSearchPreview() { renders++; },
     });
     vm.runInContext(source.slice(from, to), c);
     await c.updateGDServerStatus();
-    assert.equal(notice.hidden, false);
-    state.searchSourceErrors.netease = 'GD 音乐台的服务器端出现问题，请稍后重试。';
+    assert.equal(requests, 0);
+    const message = 'GD 音乐台搜索服务暂时不可用，请稍后重试。';
+    state.searchSourceErrors.netease = message;
+    await c.updateGDServerStatus();
+    assert.equal(state.searchSourceErrors.netease, message);
     result = false;
     await c.updateGDServerStatus();
-    assert.equal(notice.hidden, true);
+    assert.equal(renders, 1);
     assert.deepEqual(state.searchSourceErrors, {});
+    assert.equal(state.lastSearchKeyword, '');
+    await c.updateGDServerStatus();
+    assert.equal(requests, 2);
 });
 
 test('a restricted source stops automatic playback recovery', () => {
@@ -62,21 +75,24 @@ test('restored queue retains covers and streaming restrictions', () => {
 test('updating play icons preserves song cover images', () => {
     const from = source.indexOf('function updatePlayButtons(');
     const to = source.indexOf('// ─── 下载', from);
-    const icon = { outerHTML: 'old' };
+    const icon = { setAttribute(name, value) { this[name] = value; } };
     const image = { src: '/api/gd-cover/123' };
     const button = {
-        classList: { add() {}, remove() {} }, querySelector: () => icon,
-        closest: () => ({ querySelector: () => ({ textContent: 'Song' }) }),
+        classList: { toggle() {} }, querySelector: () => icon,
+        closest: () => ({
+            dataset: { songId: 'test' }, classList: { toggle() {} },
+            querySelector: selector => selector === '.song-title' ? { textContent: 'Song' } : { setAttribute() {} },
+        }),
         setAttribute() {}, image,
     };
     Object.defineProperty(button, 'innerHTML', { set() { throw new Error('cover was replaced'); } });
     const c = vm.createContext({
         document: { querySelectorAll(selector) { return selector === '.play-btn-item' ? [button] : []; } },
-        state: { currentSong: null, queue: [] }, $: () => ({}), ICON: { play: '<svg>play</svg>' },
+        state: { currentSong: null, queue: [] }, $: () => ({}), ICON_SPRITE: '/static/player-icons.svg',
     });
     vm.runInContext(source.slice(from, to), c);
     c.updatePlayButtons();
-    assert.equal(icon.outerHTML, '<svg>play</svg>');
+    assert.equal(icon.href, '/static/player-icons.svg#play');
     assert.equal(button.image, image);
 });
 
@@ -87,8 +103,9 @@ test('locate button follows the current song after the first search queue is cre
     const c = vm.createContext({
         state, $: id => nodes[id], playModeBtn: { title: '列表循环' },
         document: { querySelectorAll: () => [] }, buildSongItem: () => '', ICON: {},
+        replaceSongRows(container, html) { container.innerHTML = html; },
     });
-    vm.runInContext(source.slice(source.indexOf('function renderQueue('), source.indexOf('function showQueue(')), c);
+    vm.runInContext(source.slice(source.indexOf('function renderQueue('), source.indexOf('function pauseLyricFollow(')), c);
     vm.runInContext(source.slice(source.indexOf('function syncQueueForSong('), source.indexOf('async function getProxyUrl(')), c);
     const from = source.indexOf('function updatePlayButtons(');
     vm.runInContext(source.slice(from, source.indexOf('// ─── 下载', from)), c);

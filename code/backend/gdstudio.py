@@ -58,7 +58,7 @@ class GDStudioClient:
         self.clock = clock
         self.lock = threading.Lock()
         self.status_lock = threading.Lock()
-        self.server_error = None
+        self.search_server_error = None
         self.last_probe = float('-inf')
         os.makedirs(os.path.dirname(os.path.abspath(state_file)), exist_ok=True)
         with closing(sqlite3.connect(self.state_file)) as db, db:
@@ -100,10 +100,10 @@ class GDStudioClient:
     def server_status(self):
         with self.status_lock:
             now = self.clock()
-            if self.server_error is not False and now - self.last_probe >= 60:
+            if self.search_server_error is not False and now - self.last_probe >= 60:
                 self.last_probe = now
                 self.request('search', background=True, name='音乐', count=1, pages=1)
-            return self.server_error
+            return self.search_server_error
 
     def request(self, kind, *, background=False, **params):
         try:
@@ -136,8 +136,10 @@ class GDStudioClient:
                 response = self.session.get(API_URL, params={'types': kind, 'source': 'netease', **params}, timeout=(3, 8))
                 stage = 'http_%s' % response.status_code
                 if 500 <= response.status_code <= 599:
-                    self.server_error = True
-                    logging.getLogger(__name__).warning('GD 音乐台服务器响应 HTTP %s', response.status_code)
+                    logging.getLogger(__name__).warning('GD 音乐台 %s 接口响应 HTTP %s', kind, response.status_code)
+                    if kind == 'search':
+                        self.search_server_error = True
+                        return None, 'GD 音乐台搜索服务暂时不可用，请稍后重试。'
                     return None, 'GD 音乐台的服务器端出现问题，请稍后重试。'
                 if response.status_code == 403:
                     db.execute('UPDATE state SET blocked=1 WHERE id=1')
@@ -163,11 +165,8 @@ class GDStudioClient:
                     db.execute('UPDATE state SET blocked=1 WHERE id=1')
                     self._record_restriction(db, 'GD 接口 %s 要求验证' % kind)
                     return None, 'GD 音乐台要求验证，请确认限制解除后手动恢复'
-                if (kind == 'search' and isinstance(payload, list)) or (
-                    kind in ('url', 'pic', 'lyric') and isinstance(payload, dict)
-                    and not message and any(key in payload for key in ('url', 'lyric', 'tlyric'))
-                ):
-                    self.server_error = False
+                if kind == 'search' and isinstance(payload, list):
+                    self.search_server_error = False
                 return payload, None
             except (requests.RequestException, ValueError) as exc:
                 logging.getLogger(__name__).warning('GD 音乐台请求失败 stage=%s error=%s', stage, type(exc).__name__)
