@@ -508,6 +508,34 @@ test('untimed lyrics do not simulate synchronized highlighting', () => {
     assert.equal(c.state.currentLyricIndex, -1);
 });
 
+test('a decoded album cover replaces the previous one only for the latest song', async () => {
+    const displayed = [];
+    const decodes = new Map();
+    function cover(src, dataset = {}) {
+        return {
+            src, dataset,
+            getAttribute() { return this.src; },
+            cloneNode() { return cover(this.src, { ...this.dataset }); },
+            replaceWith(next) { displayed.push(next.src); },
+            decode() { return new Promise(resolve => decodes.set(this.src, resolve)); },
+        };
+    }
+    const c = vm.createContext({
+        initialCoverUrl: '/default.png', playerCover: cover('/default.png'),
+        pendingCover: null, fadeContent() {},
+    });
+    load(c, 'async function syncPlayerCover(', '// ─── 工具栏');
+    const first = c.syncPlayerCover('/first.png');
+    const next = c.syncPlayerCover('/next.png');
+    assert.equal(c.playerCover.src, '/default.png');
+    decodes.get('/next.png')();
+    await next;
+    decodes.get('/first.png')();
+    await first;
+    assert.equal(c.playerCover.src, '/next.png');
+    assert.deepEqual(displayed, ['/next.png']);
+});
+
 
 test('normal and instrumental recordings keep separate identities while normal types share one', () => {
     const c = vm.createContext({ URL });

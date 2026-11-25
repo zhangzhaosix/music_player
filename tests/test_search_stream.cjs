@@ -107,12 +107,11 @@ test('a later search snapshot cannot reintroduce a recording already confirmed u
 });
 
 test('search labels preserve result order across mixed matches and later pages', async () => {
-    const results = {
-        innerHTML: '', setAttribute() {}, contains: () => false,
-        insertAdjacentHTML(_position, html) { this.innerHTML += html; },
-    };
-    const nodes = { searchMiniResults: results, searchStatus: {}, searchResultCount: {} };
+    const results = { innerHTML: '', setAttribute() {} };
+    const more = { setAttribute() {} };
+    const nodes = { searchMiniResults: results, searchStatus: {}, searchResultCount: {}, retrySearchBtn: {}, loadMoreSearchBtn: more };
     const requests = [];
+    let rowReplacements = 0;
     const c = vm.createContext({
         AbortSignal, URLSearchParams, SEARCH_SOURCE_LIMIT: 20,
         state: { lastSearchKeyword: '晴天 周杰伦', searchResults: [
@@ -121,6 +120,7 @@ test('search labels preserve result order across mixed matches and later pages',
             { id: 'album', title: '其他', artist: '周杰伦', album: '晴天' },
         ] },
         $: id => nodes[id], document: { activeElement: null },
+        searchInput: {}, replaceSongRows(container, html) { container.innerHTML = html; rowReplacements++; },
         buildSongItem: song => `<song>${song.id}</song>`, escapeHtml: String,
         searchHasMore: true, searchMoreLoading: false, searchPage: 1, toast() {},
         rankSearchResults: songs => songs, syncCachedSongFlags() {},
@@ -135,11 +135,17 @@ test('search labels preserve result order across mixed matches and later pages',
     load(c, 'function syncSearchPreview(', '// ─── 全部歌曲');
     c.syncSearchPreview();
     assert.match(results.innerHTML, /直接匹配<\/h3><song>title<\/song>.*其他相关结果<\/h3><song>partial<\/song>.*直接匹配<\/h3><song>album<\/song>/);
+    c.state.isSearching = true;
+    c.syncSearchPreview();
+    c.state.isSearching = false;
+    c.syncSearchPreview();
+    assert.equal(rowReplacements, 1);
 
     await c.loadMoreSearch();
     assert.equal(new URLSearchParams(requests[0].split('?')[1]).get('page'), '2');
     assert.match(results.innerHTML, /<song>album<\/song>.*其他相关结果<\/h3><song>later<\/song>/);
     assert.deepEqual(Array.from(c.state.searchResults, song => song.id), ['title', 'partial', 'album', 'later']);
+    assert.equal(more.hidden, true);
 
     c.state.lastSearchKeyword = '周杰伦';
     c.syncSearchPreview();

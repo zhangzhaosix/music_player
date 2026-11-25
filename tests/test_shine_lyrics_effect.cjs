@@ -102,7 +102,7 @@ test('quick search reveals its field on mobile without jumping to the library or
 
 test('lyric follow centers nearby lines smoothly and jumps directly for distant or reduced-motion changes', () => {
     const scrolls = [];
-    const line = { offsetTop: 900, clientHeight: 30, classList: { add() {}, remove() {} } };
+    const line = { offsetTop: 900, clientHeight: 30, classList: { add() {}, remove() {} }, setAttribute() {}, removeAttribute() {} };
     let reduced = false;
     const c = vm.createContext({
         lyricsList: { offsetTop: 430, scrollTop: 0, clientHeight: 210, scrollTo(options) { scrolls.push(options); } },
@@ -128,4 +128,8 @@ test('lyric follow centers nearby lines smoothly and jumps directly for distant 
     reduced = true;
     c.syncLyricHighlight(true);
     assert.equal(scrolls[2].behavior, 'instant');
+    c.audio.currentTime = 0;
+    c.syncLyricHighlight(true);
+    assert.equal(c.state.currentLyricIndex, -1);
+    assert.equal(scrolls[3].top, 0);
 });
