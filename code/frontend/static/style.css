@@ -13,13 +13,13 @@
     --text-primary: #252420;
     --text-secondary: #45413c;
     --text-muted: #656059;
-    --accent: #c6e3d5;
-    --accent-hover: #b6d9c8;
-    --accent-active: #a8ceba;
-    --accent-ink: #193c30;
-    --accent-soft: #e6f0ea;
-    --accent-border: #51836f;
-    --accent-strong: #2a674f;
+    --accent: #f2ebe2;
+    --accent-hover: #ebe2d6;
+    --accent-active: #e3d8ca;
+    --accent-ink: #302820;
+    --accent-soft: #eee8e0;
+    --accent-border: #897968;
+    --accent-strong: #463c32;
     --range-track: #918980;
     --scroll-thumb: #b3a99e;
     --danger: #9d303e;
@@ -88,12 +88,17 @@ input::placeholder { color: var(--text-muted); opacity: 1; }
 .search-panel:has(#retrySearchBtn:not([hidden])) .search-mini-list { flex: 0 1 auto; }
 .player-panel { isolation: isolate; }
 .player-ambience { position: absolute; z-index: -1; inset: 0; overflow: clip; border-radius: inherit; pointer-events: none; }
-.player-ambience::before { content: ""; position: absolute; inset: -16%; opacity: .53; background:
-    radial-gradient(ellipse at 15% 30%, #abd4be 0%, transparent 52%),
-    radial-gradient(ellipse at 81% 55%, #ecd0a9 0%, transparent 56%),
-    radial-gradient(ellipse at 42% 92%, #c0dcce 0%, transparent 48%);
+.player-ambience::before {
+    content: "";
+    position: absolute;
+    top: 12px;
+    left: 0;
+    width: min(100%, 240px);
+    height: 176px;
+    opacity: 0;
+    background: radial-gradient(ellipse closest-side, var(--accent-soft), transparent);
 }
-.player-panel.is-flowing .player-ambience::before { opacity: .87; }
+.player-panel.is-flowing .player-ambience::before { opacity: 1; }
 .player-top { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "art song" "art progress" "art controls"; column-gap: 14px; row-gap: 6px; min-width: 0; }
 .album-art { grid-area: art; align-self: stretch; display: grid; place-items: center; width: 124px; height: auto; }
 .player-song-row { grid-area: song; display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
@@ -160,7 +165,7 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
 .effect-btn { min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-deep); color: var(--text-secondary); font-size: 11px; }
 .effect-btn[aria-pressed="true"] { color: var(--accent-strong); border-color: var(--accent-border); background: var(--accent-soft); }
 .lyric-panels { display: flex; flex: 1; min-height: 0; }
-.lyric-panel { display: flex; width: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: color-mix(in srgb, var(--surface) 72%, transparent); }
+.lyric-panel { display: flex; width: 100%; min-height: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-deep); }
 .lyric-panel:has(.lyric-line[data-time]:not([data-time=""])) { container-type: size; }
 .lyrics-list { position: relative; width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; text-align: center; padding: 28px 20px; }
 .lyrics-list:has(.lyric-line[data-time]:not([data-time=""])) { padding-block: max(16px, calc(50cqh - 14px)); }
@@ -205,7 +210,7 @@ input.volume-bar:hover::-moz-range-thumb, input.volume-bar:active::-moz-range-th
 .song-info { display: flex; flex: 1; min-width: 0; flex-direction: column; align-items: start; gap: 4px; text-align: left; background: transparent; padding: 2px 0; }
 .song-title { display: block; max-width: 100%; font-size: 13px; font-weight: 550; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .song-artist { max-width: 100%; color: var(--text-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.song-item.playing-now .song-title { color: var(--accent-strong); }
+.song-item.playing-now .song-title { color: var(--accent-ink); font-weight: 650; }
 @media (hover: hover) { .song-info:hover .song-title { color: var(--accent-strong); } }
 .song-actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .song-actions button, .song-select-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 32px; border-radius: 8px; background: transparent; color: var(--text-muted); }
