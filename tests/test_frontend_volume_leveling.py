@@ -18,7 +18,7 @@ class FrontendVolumeLevelingTests(unittest.TestCase):
 
     def test_all_playback_entries_share_fixed_gain_startup(self):
         app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-        self.assertEqual(app_js.count("await startPlaybackWithLeveling({"), 2)
+        self.assertEqual(app_js.count("await startPlaybackWithLeveling({"), 1)
         entrypoint = app_js[app_js.index("async function startPlaybackWithLeveling"):app_js.index("async function playSong")]
         self.assertLess(entrypoint.index("await startAudioPlayback("), entrypoint.index("void analyzeTrackGain("))
         self.assertNotIn("audio.pause()", entrypoint)
@@ -38,7 +38,7 @@ class FrontendVolumeLevelingTests(unittest.TestCase):
 
         self.assertIn("function getImmediateAudioUrl(song)", app_js)
         self.assertIn("if (song.filename) return `/api/stream/", app_js)
-        self.assertIn("if (immediateAudioUrl) {", app_js)
+        self.assertIn("if (immediateAudioUrl && !fallbackOnly) {", app_js)
         self.assertIn("params.set('playback_only', '1')", app_js)
         self.assertIn("void prefetchNextSong();", app_js)
         self.assertIn("const nextPreloader = new Audio();", app_js)

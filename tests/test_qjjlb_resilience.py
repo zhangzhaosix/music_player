@@ -6,130 +6,16 @@ from pathlib import Path
 import sys
 from unittest.mock import mock_open, patch
 
-import requests
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'code' / 'backend'))
 import app
 
 
-class FakeResponse:
-    def __init__(self, payload):
-        self._payload = payload
-
-    def raise_for_status(self):
-        return None
-
-    def json(self):
-        return self._payload
-
-
 class QjjlbResilienceTests(unittest.TestCase):
     def setUp(self):
-        app._search_cache.clear()
-        app._source_cache.clear()
+        app._gd_page_cache.clear()
         app._playback_cache.clear()
-        app._upstream_cooldowns.clear()
         app._lyrics_cache.clear()
-        app._qq_detail_cache.clear()
-
-    def test_fetch_musicbox_json_returns_friendly_message_when_connection_is_denied(self):
-        class FakeSession:
-            def get(self, url, params=None, timeout=None):
-                raise requests.ConnectionError(
-                    'HTTPSConnectionPool(host="blocked.example", port=443): '
-                    'Max retries exceeded with url: / '
-                    '(Caused by NewConnectionError('
-                    '"HTTPSConnection(host=\\"blocked.example\\", port=443): '
-                    'Failed to establish a new connection: '
-                    '[WinError 10013] access denied"))'
-                )
-
-        with patch.object(app, 'get_musicbox_session', return_value=FakeSession()):
-            data, err = app.fetch_musicbox_json('https://blocked.example/api')
-
-        self.assertIsNone(data)
-        self.assertEqual(err, 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试')
-
-    def test_fetch_qjjlb_json_retries_once_after_connection_error(self):
-        calls = {'count': 0}
-
-        class FakeSession:
-            def get(self, url, params=None, timeout=None):
-                calls['count'] += 1
-                if calls['count'] == 1:
-                    raise requests.ConnectionError('Connection aborted.')
-                return FakeResponse({'code': 200, 'data': []})
-
-        with patch.object(app, 'get_qjjlb_session', return_value=FakeSession()):
-            data, err = app.fetch_qjjlb_json('https://example.test/api')
-
-        self.assertIsNone(err)
-        self.assertEqual(data, {'code': 200, 'data': []})
-        self.assertEqual(calls['count'], 2)
-
-    def test_search_qjjlb_reports_netease_failure_without_other_sources(self):
-        with patch.object(app, 'search_qjjlb_qq') as qq, \
-             patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease', return_value=(None, 'source failed')) as netease:
-            results = app.search_qjjlb('起风了', source_names=['qq', 'kuwo', 'netease'])
-        self.assertEqual(results[1], 502)
-        kuwo.assert_not_called()
-        qq.assert_not_called()
-        netease.assert_called_once()
-
-    def test_search_qjjlb_uses_selected_sources_only(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'qq-1'}], None)) as qq, \
-             patch.object(app, 'search_qjjlb_kuwo', return_value=([{'id': 'kuwo-1'}], None)) as kuwo, \
-             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)) as netease:
-            results = app.search_qjjlb('test', limit=60, source_names=['netease'], source_limit=20)
-
-        self.assertEqual(results, [{'id': 'netease-1'}])
-        qq.assert_not_called()
-        kuwo.assert_not_called()
-        netease.assert_called_once_with('test', limit=20)
-
-    def test_retired_source_selection_cannot_use_cached_results(self):
-        with patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)):
-            qq_results = app.search_qjjlb('same-keyword', source_names=['netease'])
-            retired_results = app.search_qjjlb('same-keyword', source_names=['kuwo'])
-        self.assertEqual(qq_results, [{'id': 'netease-1'}])
-        self.assertNotEqual(retired_results, qq_results)
-
-    def test_search_qjjlb_default_failure_does_not_call_other_sources(self):
-        with patch.object(app, 'search_qjjlb_qq') as qq, \
-             patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease', return_value=(None, 'source failed')) as netease:
-            results = app.search_qjjlb('test-default-source')
-        self.assertEqual(results[1], 502)
-        qq.assert_not_called()
-        kuwo.assert_not_called()
-        netease.assert_called_once_with('test-default-source', limit=20)
-
-    def test_search_qjjlb_returns_generic_error_when_all_sources_fail(self):
-        with patch.object(app, 'search_qjjlb_qq', return_value=(None, 'qjjlb 暂时不可用，请检查本机网络权限或代理设置后重试')), \
-             patch.object(app, 'search_qjjlb_kuwo', return_value=(None, 'qjjlb 请求失败，请稍后重试')), \
-             patch.object(app, 'search_qjjlb_netease', return_value=(None, 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试')):
-            result = app.search_qjjlb('test-all-source-failed', limit=10, source_names=['qq', 'kuwo', 'netease'])
-
-        self.assertEqual(
-            result,
-            ({'error': 'musicBox 暂时不可用，请检查本机网络权限或代理设置后重试'}, 502),
-        )
-
-    def test_api_search_uses_only_netease(self):
-        with patch.object(app, 'search_qjjlb_qq') as qq, \
-             patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'netease-1'}], None)) as netease, \
-             patch.object(app, 'get_local_music', return_value=[]), \
-             patch.object(app, 'get_favorites_map', return_value={}), \
-             patch.object(app, 'find_existing_downloaded_song', return_value=None):
-            resp = app.app.test_client().get('/api/search?q=test-api-search&source_limit=20')
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual([song['id'] for song in resp.json['results']], ['netease-1'])
-        qq.assert_not_called()
-        kuwo.assert_not_called()
-        netease.assert_called_once_with('test-api-search', limit=20)
 
     def test_api_search_returns_friendly_error_with_502_status(self):
         client = app.app.test_client()
@@ -869,21 +755,6 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertEqual(data['playlist']['songs'], [])
         write_json_mock.assert_called_once()
 
-    def test_netease_search_never_fetches_old_service(self):
-        with patch.object(app, 'fetch_musicbox_json') as fetch, patch.object(app.gd_client, 'request', return_value=([], None)) as gd:
-            results, error = app.search_qjjlb_netease('知我', limit=20)
-        self.assertEqual(results, [])
-        self.assertIsNone(error)
-        fetch.assert_not_called()
-        gd.assert_called_once()
-
-    def test_retired_kuwo_search_never_fetches_old_service(self):
-        with patch.object(app, 'fetch_qjjlb_json') as fetch:
-            results, error = app.search_qjjlb_kuwo('知我', limit=20)
-        self.assertIsNone(results)
-        self.assertIn('停用', error)
-        fetch.assert_not_called()
-
     def test_extract_song_id_handles_music_163_hash_urls(self):
         song_url = 'http://music.163.com/#/song?id=185726'
 
@@ -911,22 +782,6 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(info, expected_info)
 
-    def test_old_netease_ref_never_fetches_musicbox(self):
-        with patch.object(app, 'fetch_musicbox_json') as fetch, patch.object(app, 'fetch_musicbox_text') as lyric, \
-             patch.object(app.gd_client, 'request', return_value=({'url': 'https://test/audio.mp3'}, None)):
-            info, error = app.resolve_qjjlb_song_info('qjjlb://netease?id=1394167216', include_lyrics=False)
-        self.assertIsNone(error)
-        self.assertEqual(info['mp3_url'], 'https://test/audio.mp3')
-        fetch.assert_not_called()
-        lyric.assert_not_called()
-
-    def test_old_kuwo_ref_never_fetches_old_audio_or_lyrics(self):
-        with patch.object(app, 'fetch_qjjlb_json') as fetch:
-            info, error = app.resolve_qjjlb_song_info('qjjlb://kuwo?id=196239918')
-        self.assertIsNone(info)
-        self.assertIn('停用', error)
-        fetch.assert_not_called()
-
     def test_lyrics_state_distinguishes_missing_lyrics_from_source_failure(self):
         missing = app.set_lyrics_state({'lyrics': []})
         failed = app.set_lyrics_state({'lyrics': []}, lyrics_error='timeout')
@@ -935,23 +790,6 @@ class QjjlbResilienceTests(unittest.TestCase):
         self.assertIn('纯音乐', missing['lyrics_message'])
         self.assertEqual(failed['lyrics_status'], 'source_error')
         self.assertIn('下次播放会自动重试', failed['lyrics_message'])
-
-    def test_make_musicbox_netease_song_uses_resolvable_url_when_no_direct_mp3(self):
-        item = {
-            'id': '1394167216',
-            'name': '知我',
-            'artist': '国风堂 · 哦漏',
-            'url': '',
-            'lrc': 'https://example.test/lyrics.lrc',
-            'pic': 'https://example.test/cover.jpg',
-        }
-
-        song = app.make_musicbox_netease_song(item)
-
-        self.assertEqual(song['url'], 'qjjlb://netease?id=1394167216')
-        self.assertEqual(song['source_url'], 'qjjlb://netease?id=1394167216')
-        self.assertEqual(song['mp3_url'], '')
-        self.assertEqual(song['cover_url'], 'https://example.test/cover.jpg')
 
     def test_api_song_info_falls_back_to_search_for_legacy_qeecc_urls(self):
         client = app.app.test_client()

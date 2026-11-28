@@ -165,12 +165,12 @@ test('switching to the prefetched song reuses its request and a cancelled waiter
 test('single-song repeat starts a new fixed-gain playback instead of keeping cold gain forever', () => {
     let ended, restarted;
     const c = vm.createContext({
-        audio: { addEventListener(_event, handler) { ended = handler; } },
+        audio: { ended: true, addEventListener(_event, handler) { ended = handler; } },
         state: { currentSong: { id: 'a.wav' }, playMode: 'repeat' },
         playBtn: {}, progressBar: {}, ICON: { play: 'play' },
         equalizer: { classList: { add() {} } },
         updateRangeFill() {}, updatePlayButtons() {}, syncImmersivePlayerUI() {},
-        playSong(id, options) { restarted = { id, options }; }, stepQueue() {},
+        playSong(id, options) { restarted = { id, options }; }, stepQueue() {}, cancelAutomaticPlayback() {},
     });
     const start = source.indexOf("audio.addEventListener('ended'");
     const end = source.indexOf('// 上一首/下一首', start);
@@ -186,7 +186,7 @@ test('an old resume cannot clear a new song loading state or report an error on 
     let resolve, error;
     const c = vm.createContext({
         state: { currentSong: { id: 'old' }, isLoading: false },
-        playbackState: { playToken: 1 }, audio: { paused: true, src: '/old.wav' },
+        playbackState: { playToken: 1 }, audio: { paused: true, getAttribute: () => '/old.wav' },
         syncImmersivePlayerUI() {},
         startAudioPlayback: () => new Promise(r => { resolve = r; }),
         setPlaybackError(message) { error = message; },

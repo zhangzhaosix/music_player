@@ -17,19 +17,20 @@ function playerFixture() {
         AbortController, AbortSignal, clearTimeout,
         window: { setTimeout() { return 0; } },
         PLAYABLE_INFO_TTL_MS: 300000,
-        state: { queue: songs, queueIndex: 0, currentSong: songs[0], isPlaying: true, isLoading: false, playMode: 'shuffle', playHistory: [] },
+        state: { queue: songs, queueIndex: 0, currentSong: songs[0], isPlaying: true, isLoading: false, playbackError: '', playMode: 'shuffle', playHistory: [] },
         playbackState: { playToken: 0, prefetchToken: 0, playableInfoCache: new Map() },
-        audio: { paused: false, currentTime: 37, pause() { this.paused = true; }, removeAttribute() {}, load() {} },
+        audio: { paused: false, ended: true, currentTime: 37, pause() { this.paused = true; }, getAttribute() {}, removeAttribute() {}, load() {} },
         progressBar: {}, currentTime: {}, totalTime: {}, playBtn: {}, playerTitle: {}, playerArtist: {},
         ICON: { play: 'play' }, equalizer: { classList: { add() {} } },
         Math: Object.assign(Object.create(Math), { random: () => 0 }),
         resolvePlayableSong: id => songs.find(song => song.id === id),
         syncQueueForSong() {}, clearSeekFeedback() {}, updateRangeFill() {},
         syncImmersivePlayerUI() {}, updatePlayButtons() {}, toast() {},
-        hasRealLyrics: () => true, mergeSongInfo: (song, info) => ({ ...song, ...info }),
+        hasRealLyrics: () => true, mergeSongInfo: (song, info) => ({ ...song, ...info }), formatTime: String,
         loadOnlineSongInfo: async song => ({ song, audioUrl: song.url }),
         hydrateCurrentSongDetails() {}, prefetchNextSong() {}, getPlayableInfoKey: song => song.id,
         getSongInfoReference: song => song.url, fetchOnlineSongInfo: async () => null,
+        savePlaybackState() {}, hideUnavailableSong() {},
     });
     c.startPlaybackWithLeveling = async options => { c.started = options; c.audio.paused = false; c.state.isPlaying = true; return true; };
     load(c, 'function cancelAutomaticPlayback(', 'function findSongInState');
@@ -87,54 +88,58 @@ function automaticFixture() {
         return song.id === 'b' ? null : { song, audioUrl: song.url };
     };
     c.runRetry = async () => {
-        const pending = [...timers].filter(([, timer]) => timer.ms === 5000);
-        assert.equal(pending.length, 1, 'exactly one retry must be scheduled after 5 seconds');
+        const pending = [...timers].filter(([, timer]) => timer.ms === 600 || timer.ms === 2000);
+        assert.equal(pending.length, 1, 'exactly one retry must be scheduled');
         timers.delete(pending[0][0]);
         pending[0][1].fn();
         await flush();
     };
-    c.retryTimers = () => [...timers.values()].filter(timer => timer.ms === 5000);
+    c.retryTimers = () => [...timers.values()].filter(timer => timer.ms === 600 || timer.ms === 2000);
     return c;
 }
 
-test('ended starts automatic recovery; three fresh retries precede skipping the song', async () => {
+test('ended starts automatic recovery; two fresh retries precede skipping the song', async () => {
     const c = automaticFixture();
     c.audio.addEventListener = (name, handler) => { c.onEnded = handler; };
     load(c, "audio.addEventListener('ended'", '// 上一首/下一首');
     c.onEnded();
     await flush();
-    assert.match(c.state.playbackError, /5 秒.*1\/3/);
-    for (let i = 0; i < 3; i++) await c.runRetry();
-    assert.deepEqual(c.attempts.map(item => item.id), ['b', 'b', 'b', 'b', 'c']);
-    assert.deepEqual(c.attempts.slice(1, 4).map(item => item.refresh), [true, true, true]);
+    assert.equal(c.state.playbackError, '');
+    for (let i = 0; i < 2; i++) await c.runRetry();
+    assert.deepEqual(c.attempts.map(item => item.id), ['b', 'b', 'b', 'c']);
+    assert.deepEqual(c.attempts.slice(1, 3).map(item => item.refresh), [true, true]);
     assert.equal(c.state.currentSong.id, 'c');
-    assert.equal(c.playbackState.autoAdvance, null);
+    assert.equal(c.playbackState.autoAdvance.songId, 'c');
     assert.equal(c.retryTimers().length, 0);
 });
 
-test('a recovered automatic start cancels recovery; later interruptions stay manual', async () => {
+test('a later interruption recovers silently at the current position', async () => {
     const c = automaticFixture();
     await c.playSong('b', { keepQueue: true, automatic: true });
     c.loadOnlineSongInfo = async song => ({ song, audioUrl: song.url });
     await c.runRetry();
     assert.equal(c.state.currentSong.id, 'b');
-    assert.equal(c.playbackState.autoAdvance, null);
-    c.setPlaybackError('later interruption');
-    assert.equal(c.state.playbackError, 'later interruption');
     assert.equal(c.retryTimers().length, 0);
+    c.audio.currentTime = 51;
+    c.recoverInterruptedPlayback();
+    assert.equal(c.state.playbackError, '');
+    assert.equal(c.retryTimers()[0].ms, 600);
+    await c.runRetry();
+    assert.equal(c.started.seekTime, 51);
+    assert.equal(c.state.currentSong.id, 'b');
 });
 
-test('manual song selection and manual queue navigation retry failed starts three times, then skip', async () => {
+test('manual song selection and manual queue navigation retry failed starts twice, then skip', async () => {
     for (const action of [c => c.playSong('b'), c => c.stepQueue(1)]) {
         const c = automaticFixture();
         await action(c);
         await flush();
         assert.equal(c.retryTimers().length, 1);
-        assert.match(c.state.playbackError, /播放失败.*5 秒.*1\/3/);
-        for (let i = 0; i < 3; i++) await c.runRetry();
-        assert.deepEqual(c.attempts.map(item => item.id), ['b', 'b', 'b', 'b', 'c']);
+        assert.equal(c.state.playbackError, '');
+        for (let i = 0; i < 2; i++) await c.runRetry();
+        assert.deepEqual(c.attempts.map(item => item.id), ['b', 'b', 'b', 'c']);
         assert.equal(c.state.currentSong.id, 'c');
-        assert.equal(c.playbackState.autoAdvance, null);
+        assert.equal(c.playbackState.autoAdvance.songId, 'c');
     }
 });
 
@@ -149,7 +154,7 @@ test('clicking a song again while it is loading does not disable failure recover
     finishLookup(null);
     await pending;
     assert.equal(c.retryTimers().length, 1);
-    assert.match(c.state.playbackError, /5 秒.*1\/3/);
+    assert.equal(c.state.playbackError, '');
 });
 
 test('manual switching cancels a retry and even an already queued callback cannot restart the old song', async () => {
@@ -173,7 +178,7 @@ test('the pause control cancels a pending automatic retry without restarting pla
     assert.equal(c.playbackState.autoAdvance, null);
     assert.equal(c.retryTimers().length, 0);
     assert.equal(c.audio.paused, true);
-    assert.match(c.state.playbackError, /已取消自动重试/);
+    assert.equal(c.state.playbackError, '');
     c.togglePlayPause();
     await flush();
     assert.equal(c.attempts.length, 2);
@@ -186,8 +191,8 @@ test('consecutive failures stop after one pass through the queue, in sequence, s
         c.state.playMode = mode;
         c.loadOnlineSongInfo = async song => { c.attempts.push(song.id); return null; };
         await c.playSong('b', { keepQueue: true, automatic: true });
-        for (let i = 0; i < 9; i++) await c.runRetry();
-        for (const id of ['a', 'b', 'c']) assert.equal(c.attempts.filter(item => item === id).length, 4);
+        for (let i = 0; i < 6; i++) await c.runRetry();
+        for (const id of ['a', 'b', 'c']) assert.equal(c.attempts.filter(item => item === id).length, 3);
         assert.equal(c.retryTimers().length, 0);
         assert.equal(c.playbackState.autoAdvance, null);
         assert.match(c.state.playbackError, /队列中的歌曲/);
@@ -206,8 +211,8 @@ test('a song removed as unavailable can still retry, then skip to its original s
     };
     c.resolvePlayableSong = id => c.state.queue.find(song => song.id === id);
     await c.playSong('b', { keepQueue: true, automatic: true });
-    for (let i = 0; i < 3; i++) await c.runRetry();
-    assert.deepEqual(c.attempts, ['b', 'b', 'b', 'b', 'c']);
+    for (let i = 0; i < 2; i++) await c.runRetry();
+    assert.deepEqual(c.attempts, ['b', 'b', 'b', 'c']);
 });
 
 test('a preview retries a different source within the original startup deadline', async () => {
@@ -226,7 +231,7 @@ test('a preview retries a different source within the original startup deadline'
     };
     await c.playSong('b', { keepQueue: true });
     assert.equal(deadlines.length, 2);
-    assert.equal(deadlines[0], deadlines[1]);
+    assert.ok(deadlines.every(deadline => deadline <= c.playbackState.startupDeadline));
     assert.equal(c.state.playbackError, '');
     assert.equal(c.state.currentSong.id, 'b');
     assert.equal(c.playbackState.playableInfoCache.get('b').info.mp3_url, '/full.mp3');
@@ -237,7 +242,7 @@ test('startup timeout cancels lookup and a late result cannot start audio', asyn
     let expire, resolve;
     c.window.setTimeout = (fn, ms) => {
         if (ms === 10000) expire = fn;
-        else assert.equal(ms, 5000);
+        else assert.equal(ms, 600);
         return ms;
     };
     c.loadOnlineSongInfo = () => new Promise(done => { resolve = done; });
@@ -246,7 +251,7 @@ test('startup timeout cancels lookup and a late result cannot start audio', asyn
     assert.equal(c.playbackState.playController.signal.aborted, true);
     resolve({ song: c.state.currentSong, audioUrl: '/late.mp3' });
     await pending;
-    assert.match(c.state.playbackError, /5 秒.*1\/3/);
+    assert.equal(c.state.playbackError, '');
     assert.equal(c.started, undefined);
 });
 
@@ -360,22 +365,22 @@ test('restoring a previously playing tab keeps its progress but does not autopla
     c.playerTitle = {}; c.playerArtist = {}; c.isBlockedSongText = () => false;
     load(c, 'async function restorePlaybackState(', '// ─── 初始化');
     await c.restorePlaybackState();
-    assert.equal(c.started.shouldPlay, false);
-    assert.equal(c.started.seekTime, 28);
+    assert.equal(c.started, undefined);
+    assert.equal(c.state.resumeTime, 28);
 });
 
-test('a failed restore retains the saved song and progress for retry', async () => {
+test('restoring retains the saved song and progress without attempting an online lookup', async () => {
     const c = playerFixture();
     const saved = { currentSong: c.state.currentSong, currentTime: 28 };
     c.state.currentSong = null;
     c.localStorage = { getItem: () => JSON.stringify(saved) };
     c.playerTitle = {}; c.playerArtist = {}; c.isBlockedSongText = () => false;
-    c.loadOnlineSongInfo = async () => null;
+    c.loadOnlineSongInfo = async () => { assert.fail('restore should not resolve an address'); };
     load(c, 'async function restorePlaybackState(', '// ─── 初始化');
     await c.restorePlaybackState();
     assert.equal(c.state.currentSong.id, 'a');
     assert.equal(c.state.resumeTime, 28);
-    assert.ok(c.state.playbackError);
+    assert.equal(c.state.playbackError, '');
     c.audio.currentTime = 0;
     c.localStorage.setItem = (_key, value) => { c.savedAgain = JSON.parse(value); };
     load(c, 'function savePlaybackState(', '// 页面关闭/刷新前保存');
@@ -561,7 +566,7 @@ test('a failed cached audio address refreshes the same recording before giving u
     };
     await c.playSong('b', { keepQueue: true });
     assert.equal(deadlines.length, 2);
-    assert.equal(deadlines[0], deadlines[1]);
+    assert.ok(deadlines.every(deadline => deadline <= c.playbackState.startupDeadline));
     assert.equal(c.state.playbackError, '');
     assert.equal(c.playbackState.playableInfoCache.get('b').info.mp3_url, '/renewed.mp3');
 });

@@ -89,7 +89,7 @@ test('manual retry recovers the current song and ignores repeated clicks while p
     assert.equal(c.state.currentSong.lyrics_status, 'ok');
 });
 
-test('new-song lyrics start while audio is still buffering and old progress clears immediately', async () => {
+test('a new track clears old progress immediately and requests lyrics once playback starts', async () => {
     const c = fixture(async () => null);
     let finishAudio;
     let lyricsStarted = false;
@@ -111,9 +111,10 @@ test('new-song lyrics start while audio is still buffering and old progress clea
     assert.equal(c.progressBar.value, 0);
     assert.equal(c.currentTime.textContent, '00:00');
     await new Promise(setImmediate);
-    assert.equal(lyricsStarted, true);
+    assert.equal(lyricsStarted, false);
     assert.equal(c.state.isLoading, true);
     finishAudio(true);
     await pending;
     assert.equal(c.state.isLoading, false);
+    assert.equal(lyricsStarted, true);
 });

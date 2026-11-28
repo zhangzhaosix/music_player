@@ -28,7 +28,7 @@ def retry_seconds(value, now):
 
 
 @contextmanager
-def process_lock(path):
+def process_lock(path, deadline=None):
     with open(path, 'a+b') as handle:
         handle.seek(0, os.SEEK_END)
         if handle.tell() == 0:
@@ -37,10 +37,20 @@ def process_lock(path):
         handle.seek(0)
         if os.name == 'nt':
             import msvcrt
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+            acquire = lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK if deadline is None else msvcrt.LK_NBLCK, 1)
         else:
             import fcntl
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            acquire = lambda: fcntl.flock(handle.fileno(), fcntl.LOCK_EX | (fcntl.LOCK_NB if deadline is not None else 0))
+        while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError
+            try:
+                acquire()
+                break
+            except (BlockingIOError, PermissionError):
+                if deadline is None:
+                    raise
+                time.sleep(min(0.025, max(0, deadline - time.monotonic())))
         try:
             yield
         finally:
@@ -105,16 +115,18 @@ class GDStudioClient:
                 self.request('search', background=True, name='音乐', count=1, pages=1)
             return self.search_server_error
 
-    def request(self, kind, *, background=False, **params):
+    def request(self, kind, *, background=False, deadline=None, **params):
         try:
-            return self._request(kind, background=background, **params)
+            return self._request(kind, background=background, deadline=deadline, **params)
+        except TimeoutError:
+            return None, 'GD 音乐台连接超时，请稍后重试'
         except (OSError, sqlite3.Error) as exc:
             logging.getLogger(__name__).warning('GD 音乐台请求队列不可用 error=%s', type(exc).__name__)
             return None, 'GD 音乐台请求繁忙，请稍后重试'
 
-    def _request(self, kind, *, background=False, **params):
+    def _request(self, kind, *, background=False, deadline=None, **params):
         started = self.clock()
-        with self.lock, process_lock(self.state_file + '.lock'), closing(sqlite3.connect(self.state_file, timeout=5)) as db, db:
+        with process_lock(self.state_file + '.lock', deadline), closing(sqlite3.connect(self.state_file, timeout=5)) as db, db:
             db.execute('BEGIN IMMEDIATE')
             now = self.clock()
             blocked, cooldown = db.execute('SELECT blocked, cooldown FROM state WHERE id=1').fetchone()
@@ -128,12 +140,16 @@ class GDStudioClient:
                 return None, 'GD 音乐台请求受限，请稍后重试'
             if count >= (25 if background else 30 if kind == 'pic' else 45):
                 return None, 'GD 音乐台请求频率已达安全上限，请约 2 分钟后重试'
+            remaining = deadline - time.monotonic() if deadline is not None else 12
+            if remaining < 0.1:
+                raise TimeoutError
             db.execute('INSERT INTO requests VALUES (?)', (now,))
             db.commit()
             response = None
             stage = 'request'
             try:
-                response = self.session.get(API_URL, params={'types': kind, 'source': 'netease', **params}, timeout=(3, 8))
+                response = self.session.get(API_URL, params={'types': kind, 'source': 'netease', **params},
+                                            timeout=(min(3, remaining / 3), min(8, remaining * 2 / 3)))
                 stage = 'http_%s' % response.status_code
                 if 500 <= response.status_code <= 599:
                     logging.getLogger(__name__).warning('GD 音乐台 %s 接口响应 HTTP %s', kind, response.status_code)

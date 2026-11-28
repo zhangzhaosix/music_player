@@ -35,7 +35,7 @@ function fixture() {
         replaceSongRows(container, html) { container.innerHTML = html; },
         updateBatchSelectionUI() {}, syncBatchToolbar() {}, renderDownloads() {},
         showDeleteConfirm: async () => true,
-        deleteLocalSongSilently: async (id, filename) => { requests.push(filename); return true; },
+        deleteLocalFile: async filename => { requests.push(filename); },
         syncSongRemovedFromCaches() {}, loadFavorites: async () => {}, loadDownloads: async () => true,
         loadPlaylists: async () => {}, refreshCurrentTab: async () => {},
         toast: message => messages.push(message),
@@ -71,10 +71,9 @@ test('only selected local files are deleted, once per filename, even if cache fl
 test('one failure does not stop later files; only failures remain selected for retry', async () => {
     const c = fixture();
     c.state.selectedSongIds.add('c');
-    c.deleteLocalSongSilently = async (id, filename) => {
+    c.deleteLocalFile = async filename => {
         c.requests.push(filename);
-        if (id === 'b') throw new Error('文件被占用');
-        return true;
+        if (filename === 'b.mp3') throw new Error('文件被占用');
     };
     c.loadDownloads = async () => false;
     await c.batchDeleteLocalSongs();
@@ -85,7 +84,7 @@ test('one failure does not stop later files; only failures remain selected for r
     assert.equal(c.$('downloadDeleteResult').hidden, false);
     assert.match(c.$('downloadDeleteResult').textContent, /已删除 2 首，1 首失败\nb：文件被占用/);
     assert.match(c.$('downloadDeleteResult').textContent, /列表刷新失败/);
-    c.deleteLocalSongSilently = async (id, filename) => { c.requests.push(filename); return true; };
+    c.deleteLocalFile = async filename => { c.requests.push(filename); };
     await c.batchDeleteLocalSongs();
     assert.deepEqual(c.requests, ['a.mp3', 'b.mp3', 'c.mp3', 'b.mp3']);
 });
@@ -94,7 +93,7 @@ test('duplicate submissions are blocked while confirming and while deleting', as
     const c = fixture();
     let confirm, complete, confirmations = 0;
     c.showDeleteConfirm = () => { confirmations++; return new Promise(resolve => { confirm = resolve; }); };
-    c.deleteLocalSongSilently = (id, filename) => {
+    c.deleteLocalFile = filename => {
         c.requests.push(filename);
         return new Promise(resolve => { complete = resolve; });
     };
@@ -118,11 +117,9 @@ test('deleting one version does not clear the filename of a failed version with 
         { id: 'b', filename: 'b.mp3', title: '同一首歌', artist: '同一歌手' },
     ];
     c.state.searchResults = []; c.state.queue = [];
-    c.sameSongIdentity = (a, b) => a === b;
     load(c, 'function syncSongRemovedFromCaches(', 'async function batchFavoriteSongs');
-    c.deleteLocalSongSilently = async id => {
-        if (id === 'b') throw new Error('占用');
-        return true;
+    c.deleteLocalFile = async filename => {
+        if (filename === 'b.mp3') throw new Error('占用');
     };
     c.loadDownloads = async () => false;
     await c.batchDeleteLocalSongs();
@@ -132,7 +129,7 @@ test('deleting one version does not clear the filename of a failed version with 
 
 test('switching tabs during deletion does not alter the new tab selection', async () => {
     const c = fixture();
-    c.deleteLocalSongSilently = async () => {
+    c.deleteLocalFile = async () => {
         c.state.currentTab = 'favorites';
         c.state.selectedSongIds.clear();
         c.state.isBatchMode = false;
@@ -224,8 +221,8 @@ test('deleting the playing local file releases audio first and rejects HTTP erro
     };
     load(c, 'async function fetchJSON(', 'function closeDeleteConfirm');
     load(c, 'function releaseAudioIfDeletingFile(', '// ─── 删除本地音乐');
-    load(c, 'async function deleteLocalSongSilently(', 'function clamp');
-    await assert.rejects(c.deleteLocalSongSilently('a', 'a.mp3'), /无法删除文件/);
+    load(c, 'async function deleteLocalFile(', 'function clamp');
+    await assert.rejects(c.deleteLocalFile('a.mp3'), /无法删除文件/);
     assert.deepEqual(events, ['pause', 'release', 'delete']);
     assert.equal(c.playbackState.playToken, 1);
     c.state.currentSong = { filename: 'other.mp3' };
@@ -243,4 +240,27 @@ test('a background download refresh does not replace the active tab filter count
     c.renderDownloads = () => { throw new Error('must not render the inactive tab'); };
     load(c, 'async function loadDownloads()', 'function renderDownloads');
     assert.equal(await c.loadDownloads(), true);
+});
+
+test('library sync keeps same-name recordings separate and uses only exact local links', () => {
+    const c = fixture();
+    const metadata = { title: '同名歌曲', artist: '同一歌手' };
+    const studio = { ...metadata, id: 'studio', song_ref: 'qjjlb://netease?id=1' };
+    const live = { ...metadata, id: 'live', song_ref: 'qjjlb://netease?id=2', album: '现场' };
+    const serverMatch = { ...metadata, id: 'server', filename: 'verified.mp3' };
+    c.state.searchResults = [studio, live, serverMatch];
+    c.state.localMusic = [
+        { ...live, id: 'live.mp3', filename: 'live.mp3' },
+        { title: '其他歌曲', id: 'verified.mp3', filename: 'verified.mp3' },
+    ];
+    c.state.queue = [];
+    c.syncFavoriteCurrentButton = () => {};
+    c.syncDownloadCurrentButton = () => {};
+    load(c, 'function syncCachedSongFlags(', 'function isSongFavorited(');
+    c.syncCachedSongFlags();
+    assert.equal(studio.downloaded, false);
+    assert.equal(studio.filename, undefined);
+    assert.equal(live.filename, 'live.mp3');
+    assert.equal(serverMatch.filename, 'verified.mp3');
+    assert.equal(serverMatch.downloaded, true);
 });

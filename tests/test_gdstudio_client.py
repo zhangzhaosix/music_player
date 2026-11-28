@@ -2,13 +2,14 @@ import os
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import requests
 from contextlib import closing
 from email.utils import formatdate
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'code', 'backend'))
-from gdstudio import GDStudioClient, retry_seconds
+from gdstudio import GDStudioClient, process_lock, retry_seconds
 
 
 class Response:
@@ -129,6 +130,12 @@ class GDStudioClientTests(unittest.TestCase):
             self.assertIsNone(self.client.request('search', background=True)[1])
         self.assertIn('上限', self.client.request('search', background=True)[1])
         self.assertIsNone(self.client.request('url')[1])
+
+    def test_playback_deadline_expires_in_queue_without_dispatching_a_request(self):
+        with process_lock(self.path + '.lock'):
+            result = self.client.request('url', deadline=time.monotonic() + 0.05, id='1')
+        self.assertIn('超时', result[1])
+        self.assertEqual(self.session.calls, [])
 
     def test_timeout_does_not_retry_automatically(self):
         def timeout(url, **kwargs):

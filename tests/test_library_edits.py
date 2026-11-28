@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -56,6 +57,30 @@ class LibraryEditTests(unittest.TestCase):
         ids = [song['id'] for song in restored['playlist']['songs']]
         self.assertEqual(ids[:2], ['first', 'second'])
         self.assertCountEqual(ids[2:], ['third', 'fourth'])
+
+    def test_concurrent_download_records_keep_all_updates(self):
+        read_index = music.read_download_index
+
+        def read_then_yield():
+            records = read_index()
+            time.sleep(.01)
+            return records
+
+        filenames = ['a.mp3', 'b.mp3', 'c.mp3', 'd.mp3']
+        with patch.object(music, 'read_download_index', side_effect=read_then_yield):
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                list(pool.map(lambda filename: music.save_download_record(filename=filename), filenames))
+
+        self.assertCountEqual([record['filename'] for record in music.read_download_index()], filenames)
+
+    def test_failed_download_index_write_keeps_last_valid_file(self):
+        music.save_download_record(filename='existing.mp3')
+        path = Path(music.DOWNLOAD_INDEX_FILE)
+        original = path.read_bytes()
+        with self.assertRaises(TypeError):
+            music.save_download_record(filename='invalid.mp3', audio_metadata={'value': object()})
+        self.assertEqual(path.read_bytes(), original)
+        self.assertEqual(list(path.parent.iterdir()), [path])
 
 
 if __name__ == '__main__':

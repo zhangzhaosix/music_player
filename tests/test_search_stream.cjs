@@ -71,7 +71,7 @@ test('left search click captures its own queue while the right-hand library stay
         state: { currentTab: 'favorites', searchResults: [{ id: 'a' }, { id: 'b' }], queue: [], playHistory: [], favorites: [{ id: 'f' }] },
         filterSongs: songs => songs, renderQueue() {},
     });
-    load(c, 'function syncQueueForSong(', 'async function getProxyUrl(');
+    load(c, 'function syncQueueForSong(', 'function getAudioUrl(');
     assert.equal(c.syncQueueForSong('b', { fromSearch: true }), true);
     c.state.searchResults.push({ id: 'later' });
     assert.equal(c.state.queue.length, 2);

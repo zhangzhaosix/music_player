@@ -1,5 +1,4 @@
 import sys
-import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,7 +9,7 @@ import app
 
 class SearchPlayabilityTests(unittest.TestCase):
     def setUp(self):
-        for cache in (app._playback_cache, app._search_cache, app._source_cache, app._lyrics_cache, app._gd_page_cache):
+        for cache in (app._playback_cache, app._lyrics_cache, app._gd_page_cache):
             cache.clear()
 
     def test_catalog_result_appears_without_playback_precheck(self):
@@ -57,64 +56,6 @@ class SearchPlayabilityTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIsNotNone(error)
         resolve.assert_not_called()
-
-
-class AudioProbeTests(unittest.TestCase):
-    def setUp(self):
-        app._upstream_cooldowns.clear()
-
-    class Response:
-        def __init__(self, body=b'ID3', mime='audio/mpeg', status=206, length='1024'):
-            self.body, self.status_code = body, status
-            self.headers = {'Content-Type': mime, 'Content-Length': length}
-            self.reads = 0
-            self.closed = False
-        def __enter__(self):
-            return self
-        def __exit__(self, *args):
-            self.closed = True
-        def raise_for_status(self):
-            if self.status_code >= 400:
-                raise app.requests.HTTPError('failed')
-        def iter_content(self, size):
-            self.reads += 1
-            yield self.body
-            raise AssertionError('probe must not read the whole track')
-
-    def test_valid_audio_reads_only_one_small_range_and_closes_connection(self):
-        from unittest.mock import Mock
-        response = self.Response()
-        session = Mock()
-        session.get.return_value = response
-        with patch.object(app, 'get_stream_session', return_value=session):
-            error = app.probe_playable_audio('https://audio.test/song.mp3', time.monotonic() + 1)
-        self.assertIsNone(error)
-        self.assertEqual(session.get.call_args.kwargs['headers']['Range'], 'bytes=0-1023')
-        self.assertEqual(response.reads, 1)
-        self.assertTrue(response.closed)
-
-    def test_empty_file_and_disguised_error_page_are_not_playable(self):
-        from unittest.mock import Mock
-        for response in (self.Response(length='0'), self.Response(body=b'<html>Error</html>', mime='application/octet-stream')):
-            session = Mock()
-            session.get.return_value = response
-            with patch.object(app, 'get_stream_session', return_value=session):
-                error = app.probe_playable_audio('https://audio.test/song.mp3', time.monotonic() + 1)
-            self.assertTrue(app.is_unavailable_source_error(error))
-            self.assertTrue(response.closed)
-
-    def test_rate_limit_is_temporary_and_retry_after_prevents_another_request(self):
-        from unittest.mock import Mock
-        response = self.Response(status=429)
-        response.headers['Retry-After'] = '120'
-        session = Mock()
-        session.get.return_value = response
-        with patch.object(app, 'get_stream_session', return_value=session):
-            for _ in range(2):
-                error = app.probe_playable_audio('https://limited-audio.test/song.mp3', time.monotonic() + 1)
-                self.assertFalse(app.is_unavailable_source_error(error))
-        self.assertEqual(session.get.call_count, 1)
-        self.assertGreater(app._upstream_cooldowns['limited-audio.test'], time.monotonic() + 119)
 
 
 if __name__ == '__main__':

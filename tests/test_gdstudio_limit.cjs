@@ -43,7 +43,7 @@ test('a restricted source stops automatic playback recovery', () => {
     const to = source.indexOf('function retryCurrentPlayback(', from);
     let cancelled = 0, retried = 0;
     const c = vm.createContext({
-        clearTimeout() {}, playbackState: { sourceLimit: 'GD 音乐台拒绝访问', bufferingTimer: null },
+        clearTimeout() {}, playbackState: { sourceErrorCode: 'source_restricted', sourceMessage: 'GD 音乐台拒绝访问', bufferingTimer: null },
         state: {}, audio: { pause() {} }, playBtn: {}, ICON: { play: '' },
         equalizer: { classList: { add() {} } }, updatePlayButtons() {}, syncImmersivePlayerUI() {},
         cancelAutomaticPlayback() { cancelled++; }, scheduleAutomaticPlaybackRetry() { retried++; },
@@ -106,7 +106,7 @@ test('locate button follows the current song after the first search queue is cre
         replaceSongRows(container, html) { container.innerHTML = html; },
     });
     vm.runInContext(source.slice(source.indexOf('function renderQueue('), source.indexOf('function pauseLyricFollow(')), c);
-    vm.runInContext(source.slice(source.indexOf('function syncQueueForSong('), source.indexOf('async function getProxyUrl(')), c);
+    vm.runInContext(source.slice(source.indexOf('function syncQueueForSong('), source.indexOf('function getAudioUrl(')), c);
     const from = source.indexOf('function updatePlayButtons(');
     vm.runInContext(source.slice(from, source.indexOf('// ─── 下载', from)), c);
 

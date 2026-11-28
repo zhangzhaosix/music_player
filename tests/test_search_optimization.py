@@ -1,11 +1,9 @@
 import sys
 import time
-import threading
 import unittest
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
-import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'code' / 'backend'))
 import app
@@ -13,106 +11,18 @@ import app
 
 class SearchOptimizationTests(unittest.TestCase):
     def setUp(self):
-        for cache in (app._search_cache, app._source_cache, app._playback_cache,
-                      app._qq_detail_cache, app._upstream_cooldowns):
+        for cache in (app._gd_page_cache, app._playback_cache):
             cache.clear()
-
-    def test_search_never_dispatches_retired_sources(self):
-        with patch.object(app, 'search_qjjlb_qq') as qq, \
-             patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'one'}], None)) as netease:
-            final = list(app.search_snapshots('single', source_names=['qq', 'kuwo', 'netease']))[-1]
-        self.assertTrue(final['done'])
-        self.assertEqual(final['results'], [{'id': 'one'}])
-        qq.assert_not_called()
-        kuwo.assert_not_called()
-        self.assertEqual(netease.call_count, 1)
-
-    def test_source_deadline_reports_failure_without_other_source_requests(self):
-        def slow(*args, **kwargs):
-            time.sleep(.15)
-            return [], None
-        with patch.object(app, 'SEARCH_BUDGET', .05), \
-             patch.object(app, 'search_qjjlb_netease', side_effect=slow):
-            started = time.monotonic()
-            final = list(app.search_snapshots('deadline'))[-1]
-            self.assertLess(time.monotonic() - started, .12)
-            self.assertEqual(final['results'], [])
-            self.assertIn('netease', final['source_errors'])
-            time.sleep(.16)
-
-    def test_two_searches_coalesce_and_then_hit_cache(self):
-        entered = threading.Event()
-        def fetch(*args, **kwargs):
-            entered.set()
-            time.sleep(.06)
-            return [{'id': 'one'}], None
-        with patch.object(app, 'search_qjjlb_netease', side_effect=fetch) as mocked:
-            with ThreadPoolExecutor(max_workers=2) as callers:
-                a = callers.submit(app.search_qjjlb, 'same', source_names=['netease'])
-                entered.wait(1)
-                b = callers.submit(app.search_qjjlb, 'same', source_names=['netease'])
-                self.assertEqual(a.result(), b.result())
-            self.assertEqual(app.search_qjjlb('same', source_names=['netease']), [{'id': 'one'}])
-            self.assertEqual(mocked.call_count, 1)
 
     def test_explicit_preview_filtered_but_legitimate_short_piece_kept(self):
         songs = [{'id': 'preview', 'is_preview': True}, {'id': 'short', 'expected_duration': 30}]
         with patch.object(app, 'search_qjjlb_netease', return_value=(songs, None)):
-            self.assertEqual(app.search_qjjlb('quality', source_names=['netease']), [songs[1]])
+            self.assertEqual(app.search_qjjlb('quality'), [songs[1]])
         self.assertFalse(app.incomplete_audio(30, 30))
         self.assertFalse(app.incomplete_audio(30, None))
         self.assertTrue(app.incomplete_audio(30, 200))
         self.assertTrue(app.incomplete_audio(None, is_preview=True))
         self.assertEqual(app.source_quality({'dt': 200000})['expected_duration'], 200)
-
-    def test_403_never_retries_and_sets_cooldown(self):
-        class Response:
-            status_code = 403
-            headers = {}
-            def close(self):
-                pass
-        class Session:
-            calls = 0
-            def get(self, *args, **kwargs):
-                self.calls += 1
-                return Response()
-        session = Session()
-        for _ in range(2):
-            data, error = app.fetch_upstream('https://rejected.test/song', {}, session, 'test')
-            self.assertIsNone(data)
-            self.assertTrue(error)
-        self.assertEqual(session.calls, 1)
-
-    def test_read_timeout_does_not_double_wait(self):
-        class Session:
-            calls = 0
-            def get(self, *args, **kwargs):
-                self.calls += 1
-                raise requests.ReadTimeout('slow')
-        session = Session()
-        _, error = app.fetch_upstream('https://slow.test/song', {}, session, 'test')
-        self.assertIn('读取超时', error)
-        self.assertEqual(session.calls, 1)
-
-    def test_retry_after_is_respected_and_cache_counts_are_bounded(self):
-        class Response:
-            status_code = 429
-            headers = {'Retry-After': '120'}
-            def close(self):
-                pass
-        class Session:
-            def get(self, *args, **kwargs):
-                return Response()
-        now = time.monotonic()
-        app.fetch_upstream('https://limited.test/song', {}, Session(), 'test')
-        self.assertGreaterEqual(app._upstream_cooldowns['limited.test'], now + 120)
-        with patch.object(app, 'CACHE_LIMIT', 2), \
-             patch.object(app, 'search_qjjlb_qq', return_value=([{'id': 'song'}], None)):
-            for keyword in ('one', 'two', 'three'):
-                app.search_qjjlb(keyword, source_names=['qq'])
-            self.assertLessEqual(len(app._search_cache), 2)
-            self.assertLessEqual(len(app._source_cache), 2)
 
     def test_preview_cannot_be_extracted_for_download(self):
         with patch.object(app, 'get_song_info', return_value=({'mp3_url': 'https://audio.test/clip.mp3', 'is_preview': True}, None)):
@@ -176,20 +86,20 @@ class SearchOptimizationTests(unittest.TestCase):
             self.assertEqual(response.status_code, 502)
             self.assertEqual(response.get_json()['error'], '来源暂时不可用')
 
-    def test_stream_endpoint_returns_only_netease_and_finishes(self):
-        with patch.object(app, 'search_qjjlb_qq') as qq, \
-             patch.object(app, 'search_qjjlb_kuwo') as kuwo, \
-             patch.object(app, 'search_qjjlb_netease', return_value=([{'id': 'good'}], None)) as netease, \
+    def test_stream_keeps_local_results_when_netease_fails(self):
+        import json
+
+        local = [{'id': 'local'}]
+        with patch.object(app, 'search_local_songs', return_value=local), \
+             patch.object(app.gd_client, 'request', return_value=(None, 'GD failure')) as upstream, \
              patch.object(app, 'decorate_search_results', side_effect=lambda songs: songs):
             response = app.app.test_client().get('/api/search?q=stream-test&stream=1')
-            import json
             snapshots = [json.loads(line) for line in response.data.splitlines()]
-            self.assertTrue(snapshots[-1]['done'])
-            self.assertEqual(snapshots[-1]['results'], [{'id': 'good'}])
-            self.assertEqual(snapshots[-1]['source_errors'], {})
-            kuwo.assert_not_called()
-            qq.assert_not_called()
-            self.assertEqual(netease.call_count, 1)
+        self.assertEqual(snapshots, [
+            {'results': local, 'done': False, 'source_errors': {}, 'has_more': False},
+            {'results': local, 'done': True, 'source_errors': {'netease': 'GD failure'}, 'has_more': False},
+        ])
+        self.assertEqual([call.args[0] for call in upstream.call_args_list], ['search'])
 
 
 if __name__ == '__main__':

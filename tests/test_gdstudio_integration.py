@@ -1,3 +1,4 @@
+import json
 import sys
 import tempfile
 import threading
@@ -13,8 +14,6 @@ import app
 class GDIntegrationTests(unittest.TestCase):
     def setUp(self):
         app._gd_page_cache.clear()
-        app._source_cache.clear()
-        app._search_cache.clear()
         app._playback_cache.clear()
         app._gd_covers.clear()
         self.item = {'id': '123', 'name': '歌', 'artist': ['歌手'], 'album': '专辑',
@@ -58,6 +57,47 @@ class GDIntegrationTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertIsNotNone(error)
 
+    def test_temporary_address_failure_keeps_original_error_and_skips_search(self):
+        client = app.app.test_client()
+        for message, code in [('GD 音乐台暂时不可用，请稍后重试', 'source_temporary'),
+                              ('GD 音乐台请求受限，请稍后重试', 'source_restricted')]:
+            with patch.object(app.gd_client, 'request', return_value=(None, message)) as upstream:
+                result = client.get('/api/song-info', query_string={
+                    'url': 'https://music.163.com/#/song?id=123', 'title': '歌', 'artist': '歌手', 'playback_only': 1,
+                })
+            self.assertEqual(result.json, {'error': message, 'error_code': code})
+            self.assertEqual([call.args[0] for call in upstream.call_args_list], ['url'])
+
+    def test_live_backup_requires_same_album_and_full_artist_credits(self):
+        item = {**self.item, 'id': 'backup', 'name': '歌（现场）', 'album': '同一场公演'}
+        def request(kind, **params):
+            if kind == 'search':
+                self.assertEqual(params['name'], '歌 歌手')
+                return [dict(item, id='duet', artist=['歌手', '其他歌手']),
+                        dict(item, id='other', album='另一场公演'), item, item], None
+            return {'url': 'https://audio.example/backup.mp3' if params['id'] == 'backup' else None}, None
+        with patch.object(app.gd_client, 'request', side_effect=request) as upstream:
+            result = app.app.test_client().get('/api/song-info', query_string={
+                'url': 'qjjlb://netease?id=123', 'title': '歌 (Live版)', 'artist': '歌手',
+                'album': '同一场公演', 'playback_only': 1,
+            })
+        self.assertEqual(result.status_code, 200)
+        self.assertEqual(app.qjjlb_song_identity_key_from_url(result.json['song_ref']), 'qjjlb:netease:backup')
+        self.assertEqual([call.kwargs['id'] for call in upstream.call_args_list if call.args == ('url',)], ['123', 'backup'])
+
+    def test_local_fallback_does_not_substitute_a_different_recording(self):
+        with tempfile.TemporaryDirectory() as directory:
+            filename = 'local.mp3'
+            Path(directory, filename).touch()
+            saved = {'title': '歌 (Live版)', 'artist': '歌手', 'filename': filename, 'album': '某场演出',
+                     'song_ref': 'qjjlb://netease?id=123'}
+            with patch.object(app, 'read_download_index', return_value=[saved]), patch.object(app, 'MUSIC_DIR', directory):
+                self.assertEqual(app.find_existing_downloaded_song('qjjlb://netease?id=123&lyric_id=456'), filename)
+                self.assertEqual(app.find_existing_downloaded_song(title='歌', artist='歌手'), '')
+                self.assertEqual(app.find_existing_downloaded_song(title='歌 (Live版)', artist='歌手', album='另一场演出'), '')
+                hydrated = app.hydrate_song_entry({'filename': 'moved.mp3', 'mp3_url': '/api/stream/moved.mp3', 'downloaded': True})
+                self.assertEqual((hydrated['filename'], hydrated['mp3_url'], hydrated['downloaded']), ('', '', False))
+
     def test_full_search_page_with_duplicate_recordings_needs_confirmation(self):
         items = [dict(self.item, id=str(index)) for index in range(50)]
         with patch.object(app.gd_client, 'request', return_value=(items, None)):
@@ -66,7 +106,7 @@ class GDIntegrationTests(unittest.TestCase):
         self.assertIn('确认版本', error)
 
     def test_legacy_qq_is_not_contacted(self):
-        with patch.object(app, 'fetch_vkeys_json', side_effect=AssertionError('old source contacted')):
+        with patch.object(app.gd_client, 'request', side_effect=AssertionError('retired reference picked an upstream')):
             _, error = app.resolve_qjjlb_song_info_uncached('qjjlb://qq?mid=123')
         self.assertIn('旧音源', error)
 
@@ -114,10 +154,13 @@ class GDIntegrationTests(unittest.TestCase):
             entered.set()
             release.wait(3)
             return [self.item], None
-        results = []
+        results = {}
         with patch.object(app.gd_client, 'request', side_effect=fetch) as mocked:
-            first = threading.Thread(target=lambda: results.append(app.search_qjjlb_netease('并发测试', limit=1)))
-            second = threading.Thread(target=lambda: results.append(app.search_qjjlb_netease('并发测试', limit=1)))
+            def search(name, lookup):
+                results[name] = lookup()
+
+            first = threading.Thread(target=search, args=('catalog', lambda: app.search_qjjlb('并发测试', source_limit=1)))
+            second = threading.Thread(target=search, args=('page', lambda: app.search_qjjlb_netease('并发测试', limit=1)))
             first.start()
             self.assertTrue(entered.wait(2))
             second.start()
@@ -125,28 +168,39 @@ class GDIntegrationTests(unittest.TestCase):
             release.set()
             first.join(5)
             second.join(5)
-            self.assertEqual(mocked.call_count, 1)
-            self.assertEqual(len(results), 2)
-            self.assertTrue(all(item[0][0]['title'] == '歌' for item in results))
+        self.assertEqual(mocked.call_count, 1)
+        self.assertEqual(results['page'][1], None)
+        self.assertEqual(results['catalog'], results['page'][0])
 
     def test_search_cache_evicts_least_recently_used(self):
-        with patch.object(app, 'CACHE_LIMIT', 2):
-            app.store_search_results('a', [{'id': 'a'}])
-            app.store_search_results('b', [{'id': 'b'}])
-            self.assertEqual(app.get_cached_search_results('a')[0]['id'], 'a')
-            app.store_search_results('c', [{'id': 'c'}])
-            self.assertIsNone(app.get_cached_search_results('b'))
-            self.assertIsNotNone(app.get_cached_search_results('a'))
+        with patch.object(app, 'CACHE_LIMIT', 2), patch.object(app.gd_client, 'request', return_value=([self.item], None)) as fetch:
+            for keyword in ('a', 'b', 'a', 'c', 'a', 'b'):
+                self.assertEqual(app.search_qjjlb(keyword)[0]['songid'], '123')
+        self.assertEqual([call.kwargs['name'] for call in fetch.call_args_list], ['a', 'b', 'c', 'b'])
 
     def test_search_timeout_reports_netease_source(self):
+        release, completed = threading.Event(), threading.Event()
+
         def slow(*args, **kwargs):
-            time.sleep(.15)
-            return [], None
-        with patch.object(app, 'SEARCH_BUDGET', .05), patch.object(app, 'search_qjjlb_netease', side_effect=slow):
-            final = list(app.search_snapshots('超时测试'))[-1]
-            self.assertEqual(final['results'], [])
-            self.assertIn('netease', final['source_errors'])
-            time.sleep(.16)
+            try:
+                release.wait(2)
+                return None, 'GD timeout'
+            finally:
+                completed.set()
+
+        with patch.object(app, 'SEARCH_BUDGET', .05), patch.object(app.gd_client, 'request', side_effect=slow):
+            try:
+                started = time.monotonic()
+                response = app.app.test_client().get('/api/search?q=deadline&stream=1')
+                final = json.loads(response.data.splitlines()[-1])
+                self.assertLess(time.monotonic() - started, .5)
+                self.assertEqual(final['results'], [])
+                self.assertTrue(final['done'])
+                self.assertFalse(final['has_more'])
+                self.assertIn('超时', final['source_errors']['netease'])
+            finally:
+                release.set()
+                self.assertTrue(completed.wait(2))
 
     def test_favorites_keep_cover_and_playlists_keep_original_data(self):
         with tempfile.TemporaryDirectory() as directory:
